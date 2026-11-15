@@ -3,17 +3,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_customer_templates_use_v150_assets_to_avoid_stale_cache():
+def test_customer_templates_use_v152_assets_to_avoid_stale_cache():
     for name in ("account.html", "customer_auth.html", "key_reveal.html"):
         source = (ROOT / "app" / "templates" / name).read_text()
-        assert "v=1.5.0" in source
+        assert "v=1.5.2" in source
         assert "v=1.4.0" not in source
 
 
-def test_admin_layout_uses_compact_navigation_and_v150_assets():
+def test_admin_layout_uses_compact_navigation_and_v152_assets():
     source = (ROOT / "app" / "templates" / "layout.html").read_text()
-    assert "/static/style.css?v=1.5.0" in source
-    assert "/static/app.js?v=1.5.0" in source
+    assert "/static/style.css?v=1.5.2" in source
+    assert "/static/app.js?v=1.5.2" in source
     assert "Subscriptions &amp; Orders" in source
     assert "Models &amp; Prompts" in source
     assert "System settings" in source
@@ -28,9 +28,9 @@ def test_supabase_migration_script_is_included_and_preview_first():
     assert "Target database is not empty" in source
 
 
-def test_application_version_is_v150():
+def test_application_version_is_v152():
     source = (ROOT / "app" / "main.py").read_text()
-    assert 'version="1.5.0"' in source
+    assert 'version="1.5.2"' in source
 
 
 
@@ -44,7 +44,7 @@ def test_customer_portal_has_only_four_customer_tabs_and_no_provider_details():
     assert "google ai studio" not in source
 
 
-def test_admin_css_contains_integrated_v150_admin_workspace_styles():
+def test_admin_css_contains_integrated_v152_admin_workspace_styles():
     source = (ROOT / "app" / "static" / "style.css").read_text()
     for selector in ("admin-body", ".admin-sidebar", ".admin-primary-nav", ".quick-grid"):
         assert selector in source

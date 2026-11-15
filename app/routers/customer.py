@@ -4,13 +4,15 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from decimal import Decimal
 import json
 import secrets
+import re
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from ..database import get_db
-from ..models import APIKey, ModelConfig, Plan, PurchaseOrder, Subscription, User, UserDailyUsage, UserModelGrant, UserModelCredential, Provider, PaymentMethodSetting, PaymentSubmission, UsageEvent
+from ..models import Admin, APIKey, ModelConfig, Plan, PurchaseOrder, Subscription, User, UserDailyUsage, UserModelGrant, UserModelCredential, Provider, PaymentMethodSetting, PaymentSubmission, UsageEvent
 from ..security import hash_password, verify_password, create_api_key, decrypt_secret, encrypt_secret
 from ..services.quota import get_usage
 from ..config import settings
@@ -58,16 +60,33 @@ def register_page(request: Request):
 
 
 @router.post("/register")
-def register(request: Request, email: str = Form(...), password: str = Form(...), display_name: str = Form(""), csrf: str = Form(...), db: Session = Depends(get_db)):
+def register(request: Request, username: str = Form(...), password: str = Form(...), csrf: str = Form(...), db: Session = Depends(get_db)):
     check_csrf(request, csrf)
-    email = email.strip().lower()
+    username = username.strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{2,29}", username):
+        return render(request, "customer_auth.html", mode="register", error="Username must be 3–30 characters and use only letters, numbers, dots, hyphens, or underscores.")
     if len(password) < 10:
-        return render(request, "customer_auth.html", mode="register", error="Password must be at least 10 characters long")
-    if db.scalar(select(User).where(User.email == email)):
-        return render(request, "customer_auth.html", mode="register", error="This email address is already registered")
-    user = User(email=email, display_name=display_name.strip(), password_hash=hash_password(password), active=True)
-    db.add(user); db.commit(); db.refresh(user)
-    request.session.clear(); request.session["user_id"] = user.id
+        return render(request, "customer_auth.html", mode="register", error="Password must be at least 10 characters long.")
+    reserved_admin = db.scalar(select(Admin.id).where(func.lower(Admin.username) == username))
+    if reserved_admin:
+        return render(request, "customer_auth.html", mode="register", error="This username is reserved. Please choose another one.")
+    if db.scalar(select(User.id).where(func.lower(User.username) == username)):
+        return render(request, "customer_auth.html", mode="register", error="This username is already taken. Please choose another one.")
+
+    # The legacy email column remains populated internally for old schema compatibility;
+    # it is not collected, displayed, or used for customer authentication.
+    internal_email = f"acct-{secrets.token_hex(16)}@accounts.alphax.invalid"
+    user = User(email=internal_email, username=username, display_name=username,
+                password_hash=hash_password(password), active=True)
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return render(request, "customer_auth.html", mode="register", error="This username is already taken. Please choose another one.")
+    db.refresh(user)
+    request.session.clear()
+    request.session["user_id"] = user.id
     return RedirectResponse("/account", status_code=303)
 
 
@@ -77,12 +96,29 @@ def login_page(request: Request):
 
 
 @router.post("/login")
-def login(request: Request, email: str = Form(...), password: str = Form(...), csrf: str = Form(...), db: Session = Depends(get_db)):
+def login(request: Request, username: str = Form(...), password: str = Form(...), csrf: str = Form(...), db: Session = Depends(get_db)):
+    """One sign-in form: admins and customers both use usernames."""
     check_csrf(request, csrf)
-    user = db.scalar(select(User).where(User.email == email.strip().lower(), User.active.is_(True)))
-    if not user or not user.password_hash or not verify_password(password, user.password_hash):
-        return render(request, "customer_auth.html", mode="login", error="Invalid sign-in credentials")
-    request.session.clear(); request.session["user_id"] = user.id
+    username = username.strip().lower()
+
+    admin = db.scalar(select(Admin).where(func.lower(Admin.username) == username))
+    if admin:
+        if admin.active and verify_password(password, admin.password_hash):
+            request.session.clear()
+            request.session["admin_id"] = admin.id
+            request.session["csrf"] = secrets.token_urlsafe(24)
+            return RedirectResponse("/admin", status_code=303)
+        return render(request, "customer_auth.html", mode="login", error="Incorrect username or password.")
+
+    user = db.scalar(select(User).where(func.lower(User.username) == username))
+    if not user:
+        return render(request, "customer_auth.html", mode="login", error="Account not found. Please create a new account.")
+    if not user.active:
+        return render(request, "customer_auth.html", mode="login", error="This account is disabled. Contact the administrator.")
+    if not user.password_hash or not verify_password(password, user.password_hash):
+        return render(request, "customer_auth.html", mode="login", error="Incorrect username or password.")
+    request.session.clear()
+    request.session["user_id"] = user.id
     return RedirectResponse("/account", status_code=303)
 
 

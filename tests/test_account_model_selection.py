@@ -30,7 +30,7 @@ def test_customer_portal_uses_real_model_profiles_and_four_customer_sections():
     ]
     html = template.render(
         request=NS(session={}, query_params={}),
-        user=NS(display_name="Demo", email="demo@example.com"),
+        user=NS(username="demo", display_name="Demo", email="demo@example.com"),
         csrf="csrf-test",
         active_sub=None,
         usage=NS(total_tokens=0, reserved_tokens=0),

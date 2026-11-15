@@ -20,7 +20,9 @@ class Admin(Base):
 class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
+    # `email` is retained internally for backward compatibility; new accounts use usernames only.
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    username: Mapped[str | None] = mapped_column(String(80), unique=True, index=True, nullable=True)
     display_name: Mapped[str] = mapped_column(String(120), default="")
     password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)

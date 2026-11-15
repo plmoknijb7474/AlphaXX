@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func, case
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from ..database import get_db
 from ..models import Admin, APIKey, ModelConfig, Plan, Provider, Subscription, User, UserDailyUsage, UserModelGrant, UserModelCredential, PurchaseOrder, PaymentMethodSetting, PaymentSubmission
@@ -21,11 +22,11 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 
 def admin_required(request: Request, db: Session) -> Admin:
     admin_id = request.session.get("admin_id")
     if not admin_id:
-        raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
+        raise HTTPException(status_code=303, headers={"Location": "/login"})
     admin = db.get(Admin, admin_id)
     if not admin or not admin.active:
         request.session.clear()
-        raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
+        raise HTTPException(status_code=303, headers={"Location": "/login"})
     return admin
 
 
@@ -89,28 +90,22 @@ def append_customer_model_keys(db: Session, user_id: int, model_id: int, raw_lin
     return added
 
 
-@router.get("/login", response_class=HTMLResponse)
+@router.get("/login")
 def login_page(request: Request):
-    return render(request, "login.html", error=None)
+    # Backward-compatible URL: all roles now sign in through the customer login page.
+    return RedirectResponse("/login", status_code=303)
 
 
 @router.post("/login")
-def login(request: Request, username: str = Form(...), password: str = Form(...), csrf: str = Form(...), db: Session = Depends(get_db)):
-    check_csrf(request, csrf)
-    admin = db.scalar(select(Admin).where(Admin.username == username, Admin.active.is_(True)))
-    if not admin or not verify_password(password, admin.password_hash):
-        return render(request, "login.html", error="Incorrect username or password")
-    request.session.clear()
-    request.session["admin_id"] = admin.id
-    csrf_token(request)
-    return RedirectResponse("/admin", status_code=303)
+def legacy_login_post(request: Request):
+    return RedirectResponse("/login", status_code=303)
 
 
 @router.post("/logout")
 def logout(request: Request, csrf: str = Form(...)):
     check_csrf(request, csrf)
     request.session.clear()
-    return RedirectResponse("/admin/login", status_code=303)
+    return RedirectResponse("/login", status_code=303)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -136,15 +131,28 @@ def users_page(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/users")
-def create_user(request: Request, email: str = Form(...), display_name: str = Form(""), plan_id: int = Form(...), csrf: str = Form(...), db: Session = Depends(get_db)):
+def create_user(request: Request, username: str = Form(...), password: str = Form(...), plan_id: int = Form(...), csrf: str = Form(...), db: Session = Depends(get_db)):
     admin_required(request, db); check_csrf(request, csrf)
-    if db.scalar(select(User).where(User.email == email.strip().lower())):
-        return RedirectResponse("/admin/users?message=email_exists", status_code=303)
+    username = username.strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{2,29}", username):
+        return RedirectResponse("/admin/users?message=invalid_username", status_code=303)
+    if len(password) < 10:
+        return RedirectResponse("/admin/users?message=weak_password", status_code=303)
+    if db.scalar(select(Admin.id).where(func.lower(Admin.username) == username)):
+        return RedirectResponse("/admin/users?message=username_reserved", status_code=303)
+    if db.scalar(select(User.id).where(func.lower(User.username) == username)):
+        return RedirectResponse("/admin/users?message=username_exists", status_code=303)
     plan = db.get(Plan, plan_id)
     if not plan:
         raise HTTPException(400, "Invalid plan")
-    user = User(email=email.strip().lower(), display_name=display_name.strip(), active=True)
-    db.add(user); db.flush()
+    user = User(email=f"acct-{secrets.token_hex(16)}@accounts.alphax.invalid", username=username,
+                display_name=username, password_hash=hash_password(password), active=True)
+    db.add(user)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        return RedirectResponse("/admin/users?message=username_exists", status_code=303)
     now = datetime.now(timezone.utc)
     db.add(Subscription(user_id=user.id, plan_id=plan.id, status="active", starts_at=now, ends_at=now + timedelta(days=30)))
     db.commit()

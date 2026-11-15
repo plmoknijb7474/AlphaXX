@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -93,7 +94,11 @@ def upgrade_schema(bind=None):
                 "failure_count": "INTEGER NOT NULL DEFAULT 0",
                 "last_failure_code": "VARCHAR(24) NOT NULL DEFAULT ''",
             },
-            "users": {"password_hash": "VARCHAR(256)"},
+            "users": {
+                "username": "VARCHAR(80)",
+                "display_name": "VARCHAR(120) NOT NULL DEFAULT ''",
+                "password_hash": "VARCHAR(256)",
+            },
             "api_keys": {"secret_delivery_encrypted": "TEXT"},
             "purchase_orders": {
                 "issued_api_key_id": "INTEGER",
@@ -116,6 +121,33 @@ def upgrade_schema(bind=None):
             for name, ddl in columns.items():
                 if name not in existing:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+        # New customer accounts use usernames. Preserve old accounts by deriving a
+        # stable username from the local part of their former email address.
+        tables = set(inspect(conn).get_table_names())
+        if "users" in tables:
+            user_columns = {col["name"] for col in inspect(conn).get_columns("users")}
+            email_expr = "email" if "email" in user_columns else "NULL"
+            rows = conn.execute(text(f"SELECT id, {email_expr} AS email, username FROM users ORDER BY id")).mappings().all()
+            used = {str(row["username"]).lower() for row in rows if row["username"]}
+            for row in rows:
+                if row["username"]:
+                    continue
+                email = str(row["email"] or "")
+                local = email.split("@", 1)[0].lower()
+                base = re.sub(r"[^a-z0-9_.-]+", "", local).strip("._-")[:24]
+                if len(base) < 3:
+                    base = f"user{row['id']}"
+                candidate = base
+                suffix = 1
+                while candidate.lower() in used:
+                    tail = str(suffix)
+                    candidate = f"{base[:30-len(tail)]}{tail}"
+                    suffix += 1
+                conn.execute(text("UPDATE users SET username = :username WHERE id = :id"),
+                             {"username": candidate, "id": row["id"]})
+                used.add(candidate.lower())
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)"))
 
         # Remove legacy uniqueness on (user_id, model_id) so each pair can own
         # several encrypted credentials. Existing direct credentials are retained.
