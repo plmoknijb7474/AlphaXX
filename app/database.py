@@ -189,6 +189,72 @@ def _reconcile_model_columns(conn, target_engine) -> list[str]:
     return added
 
 
+def _synchronize_postgres_id_sequences(conn, target_engine) -> list[str]:
+    """Advance PostgreSQL serial/identity sequences past IDs already in legacy tables.
+
+    This matters when rows were imported or inserted with explicit IDs outside the
+    ORM. Without it, the next INSERT may reuse an existing primary key. The customer
+    registration route previously presented that unrelated primary-key failure as
+    "username already taken", making every new username appear unavailable.
+    """
+    if target_engine.dialect.name != "postgresql":
+        return []
+
+    existing_tables = set(inspect(conn).get_table_names())
+    preparer = target_engine.dialect.identifier_preparer
+    synchronized: list[str] = []
+
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        primary_columns = list(table.primary_key.columns)
+        if len(primary_columns) != 1:
+            continue
+        column = primary_columns[0]
+        if not isinstance(column.type, Integer) or column.autoincrement is False:
+            continue
+
+        schema = table.schema or "public"
+        qualified_table_name = f"{schema}.{table.name}"
+        sequence_name = conn.execute(
+            text("SELECT pg_get_serial_sequence(:table_name, :column_name)"),
+            {"table_name": qualified_table_name, "column_name": column.name},
+        ).scalar_one_or_none()
+        if not sequence_name:
+            continue
+
+        quoted_schema = preparer.quote_schema(schema)
+        quoted_table = preparer.quote(table.name)
+        quoted_column = preparer.quote(column.name)
+        max_id = conn.execute(text(
+            f"SELECT MAX({quoted_column}) FROM {quoted_schema}.{quoted_table}"
+        )).scalar_one_or_none()
+        if max_id is None:
+            # Empty tables cannot collide with existing rows; leave their sequences
+            # untouched so a previously-used sequence is never moved backwards.
+            continue
+
+        sequence_parts = str(sequence_name).split(".")
+        sequence_schema = sequence_parts[-2].strip('"') if len(sequence_parts) > 1 else schema
+        sequence_leaf = sequence_parts[-1].strip('"')
+        current_sequence_value = conn.execute(text(
+            "SELECT last_value FROM pg_sequences "
+            "WHERE schemaname = :schema AND sequencename = :sequence_name"
+        ), {"schema": sequence_schema, "sequence_name": sequence_leaf}).scalar_one_or_none()
+
+        # Never move a sequence backwards: deleted rows may leave its current value
+        # higher than MAX(id), and that higher value must be retained.
+        safe_value = max(int(max_id), int(current_sequence_value or 0), 1)
+        conn.execute(text(
+            "SELECT setval(CAST(:sequence_name AS regclass), :safe_value, TRUE)"
+        ), {"sequence_name": str(sequence_name), "safe_value": safe_value})
+        synchronized.append(table.name)
+
+    if synchronized:
+        logger.info("AlphaX synchronized PostgreSQL ID sequences: %s", ", ".join(synchronized))
+    return synchronized
+
+
 def _reconcile_model_indexes(conn) -> None:
     """Restore ORM indexes after legacy usernames and data have been normalized."""
     from . import models as _models  # noqa: F401
@@ -484,3 +550,6 @@ def upgrade_schema(bind=None):
 
         # Restore indexes only after usernames have been normalized and legacy tables migrated.
         _reconcile_model_indexes(conn)
+        # Imported legacy rows can leave PostgreSQL serial sequences behind MAX(id).
+        # Synchronize all integer primary-key sequences before the app accepts writes.
+        _synchronize_postgres_id_sequences(conn, target_engine)

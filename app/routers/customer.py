@@ -5,6 +5,7 @@ from decimal import Decimal
 import json
 import secrets
 import re
+import logging
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -19,6 +20,7 @@ from ..config import settings
 from ..services.manual_payments import payment_day_window_utc, submissions_used_today, reserve_daily_submission_slot
 
 router = APIRouter()
+logger = logging.getLogger("alphax.customer")
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 
 
@@ -54,6 +56,24 @@ def render(request: Request, name: str, **context):
     return templates.TemplateResponse(request, name, {"csrf": csrf_token(request), **context})
 
 
+def _is_username_unique_violation(exc: IntegrityError) -> bool:
+    """Return True only when the violated constraint is the customer username."""
+    original = getattr(exc, "orig", None)
+    diagnostic = getattr(original, "diag", None)
+    constraint_name = getattr(diagnostic, "constraint_name", None)
+    if constraint_name:
+        return constraint_name in {
+            "ix_users_username", "uq_users_username", "users_username_key"
+        }
+    message = str(original or exc).lower()
+    return (
+        "unique constraint failed: users.username" in message
+        or 'duplicate key value violates unique constraint "ix_users_username"' in message
+        or 'duplicate key value violates unique constraint "users_username_key"' in message
+        or 'duplicate key value violates unique constraint "uq_users_username"' in message
+    )
+
+
 @router.get("/register", response_class=HTMLResponse)
 def register_page(request: Request):
     return render(request, "customer_auth.html", mode="register", error=None)
@@ -81,9 +101,16 @@ def register(request: Request, username: str = Form(...), password: str = Form(.
     db.add(user)
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        return render(request, "customer_auth.html", mode="register", error="This username is already taken. Please choose another one.")
+        if _is_username_unique_violation(exc):
+            return render(request, "customer_auth.html", mode="register", error="This username is already taken. Please choose another one.")
+        constraint_name = getattr(getattr(getattr(exc, "orig", None), "diag", None), "constraint_name", None)
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        # Do not log SQL parameters or password hashes. The detailed cause stays in
+        # the server's DB diagnostics, while users receive an honest non-duplicate error.
+        logger.error("Customer registration failed on a non-username database constraint (constraint=%r, sqlstate=%r)", constraint_name, sqlstate)
+        return render(request, "customer_auth.html", mode="register", error="We couldn't create your account because of a database error. Please try again later.")
     db.refresh(user)
     request.session.clear()
     request.session["user_id"] = user.id

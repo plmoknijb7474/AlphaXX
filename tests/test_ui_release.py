@@ -6,14 +6,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_customer_templates_use_v152_assets_to_avoid_stale_cache():
     for name in ("account.html", "customer_auth.html", "key_reveal.html"):
         source = (ROOT / "app" / "templates" / name).read_text()
-        assert "v=1.5.4" in source
+        assert "v=1.5.5" in source
         assert "v=1.4.0" not in source
 
 
 def test_admin_layout_uses_compact_navigation_and_v152_assets():
     source = (ROOT / "app" / "templates" / "layout.html").read_text()
-    assert "/static/style.css?v=1.5.4" in source
-    assert "/static/app.js?v=1.5.4" in source
+    assert "/static/style.css?v=1.5.5" in source
+    assert "/static/app.js?v=1.5.5" in source
     assert "Subscriptions &amp; Orders" in source
     assert "Models &amp; Prompts" in source
     assert "System settings" in source
@@ -30,7 +30,7 @@ def test_supabase_migration_script_is_included_and_preview_first():
 
 def test_application_version_is_v154():
     source = (ROOT / "app" / "main.py").read_text()
-    assert 'version="1.5.4"' in source
+    assert 'version="1.5.5"' in source
 
 
 

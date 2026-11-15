@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=1.5.4">
-  <script src="/static/app.js?v=1.5.4" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=1.5.5">
+  <script src="/static/app.js?v=1.5.5" defer></script>
 </head>
 <body class="admin-body">
   {% if request.session.get('admin_id') %}
@@ -41,7 +41,7 @@
   <main class="main {% if not request.session.get('admin_id') %}main-auth{% endif %}">
     <div class="admin-main-inner">
       {% block content %}{% endblock %}
-      <footer>AlphaX · Admin-Controlled Gateway · V1.5.4</footer>
+      <footer>AlphaX · Admin-Controlled Gateway · V1.5.5</footer>
     </div>
   </main>
   <div class="alpha-atmosphere" aria-hidden="true">

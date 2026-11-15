@@ -446,7 +446,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.app_name, version="1.5.4", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="1.5.5", lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie="alpha_session", same_site="strict", https_only=settings.cookie_secure, max_age=60 * 60 * 8)
 APP_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
@@ -458,7 +458,7 @@ app.include_router(customer_router)
 @app.get("/health")
 def health():
     """Liveness check: confirms the ASGI worker is responding."""
-    return {"status": "ok", "service": "alpha-api", "phase": "alphax-google-ai-studio-router-v1.5.4"}
+    return {"status": "ok", "service": "alpha-api", "phase": "alphax-google-ai-studio-router-v1.5.5"}
 
 
 @app.get("/health/ready")
@@ -471,9 +471,9 @@ def health_ready():
         # Do not leak database URLs, credentials, or connection details to the public endpoint.
         return JSONResponse(
             status_code=503,
-            content={"status": "not_ready", "service": "alpha-api", "version": "1.5.4"},
+            content={"status": "not_ready", "service": "alpha-api", "version": "1.5.5"},
         )
-    return {"status": "ready", "service": "alpha-api", "version": "1.5.4"}
+    return {"status": "ready", "service": "alpha-api", "version": "1.5.5"}
 
 
 @app.get("/", include_in_schema=False)

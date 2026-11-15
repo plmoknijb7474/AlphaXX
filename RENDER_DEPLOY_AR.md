@@ -1,4 +1,4 @@
-# نشر AlphaX v1.5.4 على Render
+# نشر AlphaX v1.5.5 على Render
 
 هذه الحزمة معدّة لخدمة Render Web Service باستخدام Docker وFastAPI/Uvicorn.
 
@@ -40,7 +40,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 ## التحقق
 
-- افتح `/health` وتأكد أن مرحلة الخدمة تحمل `v1.5.4`، ثم افتح `/health/ready` ويجب أن يعيد `status: ready` وإصدار `1.5.4`.
+- افتح `/health` وتأكد أن مرحلة الخدمة تحمل `v1.5.5`، ثم افتح `/health/ready` ويجب أن يعيد `status: ready` وإصدار `1.5.5`.
 
 ```bash
 curl -i https://YOUR-SERVICE.onrender.com/health
@@ -48,3 +48,8 @@ curl -i https://YOUR-SERVICE.onrender.com/health/ready
 ```
 
 الاختبارات المحلية لا تثبت صلاحية مفاتيح Google أو توفر معرفات النماذج فعلياً؛ اختبر طلباً حقيقياً لكل نموذج قبل تفعيل المشتركين.
+
+
+## التحديث إلى 1.5.5
+
+يضيف هذا الإصدار مزامنة تسلسلات مفاتيح PostgreSQL التلقائية مع أكبر المعرّفات الموجودة عند بدء التطبيق، ويمنع عرض أخطاء قاعدة البيانات الأخرى كأن اسم المستخدم مكرر. لا تحذف قاعدة البيانات ولا تغيّر متغيرات البيئة. تحقق من الإصدار عبر `/health/ready` بعد النشر.
