@@ -1,0 +1,3 @@
+تم تجهيز هذه النسخة لـ Render. اقرأ RENDER_DEPLOY_AR.md قبل النشر.
+الملفات المضافة/المعدلة: Dockerfile متوافق مع PORT الخاص بـ Render، render.yaml، و.dockerignore.
+يجب إعداد DATABASE_URL على PostgreSQL خارجي مثل Supabase، وإضافة SECRET_KEY وFERNET_KEY وADMIN_PASSWORD وPUBLIC_BASE_URL في Environment داخل Render.

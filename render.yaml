@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: alphax-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /health/ready
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: APP_NAME
+        value: AlphaX
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: SECRET_KEY
+        sync: false
+      - key: FERNET_KEY
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: DAILY_QUOTA_TIMEZONE
+        value: UTC
+      - key: PAYMENT_REVIEW_TIMEZONE
+        value: Asia/Damascus

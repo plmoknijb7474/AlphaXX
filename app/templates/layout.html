@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08111f">
+  <title>{{ title or 'AlphaX Admin' }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=1.5.0">
+  <script src="/static/app.js?v=1.5.0" defer></script>
+</head>
+<body class="admin-body">
+  {% if request.session.get('admin_id') %}
+  <aside class="sidebar admin-sidebar">
+    <a class="brand" href="/admin" aria-label="AlphaX admin home">
+      <span class="brand-mark brand-wordmark">AlphaX</span>
+      <span>ADMIN <small>CONTROL CENTER</small></span>
+    </a>
+    <div class="nav-caption">WORKSPACE</div>
+    <nav class="admin-primary-nav" aria-label="Main administration">
+      <a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}"><span class="nav-icon">⌂</span>Overview</a>
+      <a href="/admin/orders" class="{% if request.url.path.startswith('/admin/orders') %}active{% endif %}"><span class="nav-icon">▤</span>Subscriptions &amp; Orders</a>
+      <a href="/admin/users" class="{% if request.url.path.startswith('/admin/users') %}active{% endif %}"><span class="nav-icon">♙</span>Customers</a>
+      <a href="/admin/models" class="{% if request.url.path.startswith('/admin/models') %}active{% endif %}"><span class="nav-icon">✧</span>Models &amp; Prompts</a>
+    </nav>
+    <details class="admin-settings-nav" {% if request.url.path in ['/admin/payment-reviews','/admin/plans','/admin/providers','/admin/payments'] %}open{% endif %}>
+      <summary><span class="nav-icon">⚙</span>System settings <span class="settings-chevron">⌄</span></summary>
+      <nav aria-label="System settings">
+        <a href="/admin/payment-reviews" class="{% if request.url.path.startswith('/admin/payment-reviews') %}active{% endif %}">Payment review</a>
+        <a href="/admin/plans" class="{% if request.url.path.startswith('/admin/plans') %}active{% endif %}">Plans &amp; quotas</a>
+        <a href="/admin/providers" class="{% if request.url.path.startswith('/admin/providers') %}active{% endif %}">Provider endpoints</a>
+        <a href="/admin/payments" class="{% if request.url.path.startswith('/admin/payments') %}active{% endif %}">Payment methods</a>
+      </nav>
+    </details>
+    <div class="sidebar-spacer"></div>
+    <div class="sidebar-status"><span class="status-dot"></span><div><b>AlphaX Gateway</b><small>Private admin workspace</small></div></div>
+    <form method="post" action="/admin/logout" class="logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn btn-quiet" type="submit">Sign out</button></form>
+  </aside>
+  {% endif %}
+  <main class="main {% if not request.session.get('admin_id') %}main-auth{% endif %}">
+    <div class="admin-main-inner">
+      {% block content %}{% endblock %}
+      <footer>AlphaX · Admin-Controlled Gateway · V1.5.0</footer>
+    </div>
+  </main>
+  <div class="alpha-atmosphere" aria-hidden="true">
+    <div class="alpha-aurora alpha-aurora-a"></div><div class="alpha-aurora alpha-aurora-b"></div>
+    <div class="alpha-fireflies"><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i><i style="--i:4"></i><i style="--i:5"></i><i style="--i:6"></i><i style="--i:7"></i><i style="--i:8"></i><i style="--i:9"></i><i style="--i:10"></i><i style="--i:11"></i><i style="--i:12"></i><i style="--i:13"></i><i style="--i:14"></i><i style="--i:15"></i><i style="--i:16"></i></div>
+    <div class="alpha-dust"><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i><i style="--i:4"></i><i style="--i:5"></i><i style="--i:6"></i><i style="--i:7"></i><i style="--i:8"></i><i style="--i:9"></i><i style="--i:10"></i><i style="--i:11"></i><i style="--i:12"></i><i style="--i:13"></i><i style="--i:14"></i><i style="--i:15"></i><i style="--i:16"></i></div>
+    <i class="alpha-meteor alpha-meteor-a"></i><i class="alpha-meteor alpha-meteor-b"></i>
+  </div>
+  <button class="alpha-companion" type="button" aria-label="Play with your little companion" title="Tap to play with me"><span class="alpha-companion-eye eye-a"></span><span class="alpha-companion-eye eye-b"></span><span class="alpha-companion-highlight"></span></button>
+</body></html>

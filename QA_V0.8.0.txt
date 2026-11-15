@@ -1,0 +1,31 @@
+Alpha API V0.8.0 - Verification Report
+Date: 2026-11-13
+
+Automated tests: 25 passed
+Python compilation: passed
+Clean-start smoke checks:
+  GET /health       -> 200
+  GET /admin/login  -> 200
+  GET /login        -> 200
+  GET /register     -> 200
+
+Verified by local/mock tests:
+- Admin central System Prompt is composed into every gateway request; missing prompt blocks generation with 503.
+- OpenAI-compatible incremental SSE is streamed as received from upstream (mocked provider transport).
+- Google native streaming maps text, reasoning chunks and function calls into OpenAI-compatible SSE (mocked provider transport).
+- Failover occurs only before the first downstream chunk; after content begins, the stream is terminated with a generic error to avoid duplicated/mixed output.
+- Images: native Google adapter accepts validated inline base64 data URLs; external URLs are rejected by this adapter to prevent SSRF.
+- Tool calling mappings and tool-result round trips are covered for Google adapter; OpenAI-compatible tools are passed through.
+- Y5Z reasoning metadata flag behavior is tested; flag reveals reasoning_content when exposed by the upstream, it does not alter the model's internal reasoning effort.
+- Manual-payment daily limit and payment review helpers covered by automated tests.
+
+Not verified live in this environment:
+- No real xKiro, OdiRouter or Google AI Studio API credentials were provided; therefore no live upstream API request was executed.
+- No real OpenCode client session was executed; tool-calling compatibility is contract/mock-tested but still requires live acceptance testing with an actual OpenCode client and active provider credentials.
+- No real funds were transferred. Admin must enter real Binance, Syriatel Cash and Sham Cash receiver details/instructions, then manually reconcile each transaction in the source payment app/account.
+
+Release notes:
+- True HTTP streaming path uses upstream SSE; no synthetic buffering after full response.
+- Mid-stream failover is intentionally disabled after first downstream chunk to avoid mixing duplicate answers.
+- All /v1/chat/completions requests require an active Admin-managed central System Prompt. Missing/blank prompt returns 503 without calling upstream.
+- User-supplied system/developer context is retained as lower-priority runtime context; model compliance is not an absolute guarantee.

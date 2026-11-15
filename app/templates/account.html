@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en" dir="ltr" data-mood="night">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08111f"><meta name="description" content="AlphaX customer workspace">
+  <title>AlphaX — Customer Workspace</title>
+  <link rel="stylesheet" href="/static/customer_portal.css?v=1.5.0">
+  <script src="/static/customer_portal.js?v=1.5.0" defer></script>
+</head>
+<body>
+<div class="ambient" aria-hidden="true">
+  <div class="aurora a"></div><div class="aurora b"></div>
+  <div class="stars">
+    <i style="--x:7%;--y:17%;--d:10s;--delay:-3s"></i><i style="--x:19%;--y:65%;--d:12s;--delay:-5s"></i><i style="--x:31%;--y:29%;--d:9s;--delay:-2s"></i><i style="--x:42%;--y:83%;--d:14s;--delay:-8s"></i><i style="--x:55%;--y:13%;--d:11s;--delay:-4s"></i><i style="--x:67%;--y:60%;--d:8s;--delay:-1s"></i><i style="--x:79%;--y:24%;--d:13s;--delay:-7s"></i><i style="--x:92%;--y:73%;--d:10s;--delay:-6s"></i><i style="--x:13%;--y:89%;--d:11s;--delay:-3s"></i><i style="--x:36%;--y:8%;--d:9s;--delay:-7s"></i><i style="--x:49%;--y:48%;--d:12s;--delay:-2s"></i><i style="--x:73%;--y:90%;--d:14s;--delay:-10s"></i><i style="--x:87%;--y:43%;--d:9s;--delay:-4s"></i>
+  </div>
+  <div class="dust"><i style="--x:10%;--y:24%;--d:17s;--delay:-4s"></i><i style="--x:22%;--y:52%;--d:19s;--delay:-8s"></i><i style="--x:35%;--y:73%;--d:15s;--delay:-5s"></i><i style="--x:47%;--y:18%;--d:18s;--delay:-9s"></i><i style="--x:59%;--y:37%;--d:16s;--delay:-3s"></i><i style="--x:70%;--y:78%;--d:20s;--delay:-11s"></i><i style="--x:84%;--y:12%;--d:17s;--delay:-6s"></i><i style="--x:94%;--y:56%;--d:19s;--delay:-13s"></i><i style="--x:6%;--y:81%;--d:16s;--delay:-7s"></i><i style="--x:42%;--y:91%;--d:21s;--delay:-15s"></i><i style="--x:64%;--y:8%;--d:18s;--delay:-2s"></i><i style="--x:77%;--y:49%;--d:16s;--delay:-8s"></i></div>
+  <i class="meteor one"></i><i class="meteor two"></i>
+</div>
+<div class="app customer-app">
+  <header class="topbar">
+    <a class="brand" href="/account" aria-label="AlphaX home">
+      <span class="brand-mark brand-wordmark">AlphaX</span><div><div class="brand-word">API</div><small>CUSTOMER PORTAL</small></div>
+    </a>
+    <nav class="nav desktop-nav" aria-label="Customer pages">
+      <button class="active" data-go="api"><span class="nav-icon">⌘</span>API Access</button>
+      <button data-go="usage"><span class="nav-icon">▥</span>Usage</button>
+      <button data-go="plans"><span class="nav-icon">◇</span>Plans</button>
+      <button data-go="models"><span class="nav-icon">✧</span>About Models</button>
+    </nav>
+    <div class="header-right">
+      <div class="time-pill"><span class="time-dot"></span><span id="mood-symbol">☾</span><span id="syria-time">SYRIA · --:--</span><span id="mood-label">NIGHT</span></div>
+      <div class="account-pill"><span class="avatar">{{ (user.display_name or user.email)[:1]|upper }}</span><span>{{ user.display_name or user.email }}</span></div>
+      <form method="post" action="/account/logout" class="signout-form"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="signout-btn" type="submit">Sign out</button></form>
+    </div>
+  </header>
+
+  <main id="portal">
+    <section class="page active" data-page="api">
+      <div class="page-head"><div><span class="eyebrow">YOUR WORKSPACE</span><h1 class="page-title">API Access</h1><p class="lede">Your connection details and access status, all in one place.</p></div>
+        {% if active_sub %}<span class="plan-badge">● {{ active_sub.plan.name|upper }} · ACTIVE</span>{% else %}<span class="plan-badge plan-badge-muted">● NO ACTIVE SUBSCRIPTION</span>{% endif %}
+      </div>
+      <div class="api-grid">
+        <article class="card api-key-card">
+          <div class="key-top"><span class="key-label">Your API keys</span><span class="active-state"><i></i> {{ active_keys|length }} ACTIVE</span></div>
+          {% if request.query_params.get('api_key') == 'generated' %}<div class="included-note"><b>Your AlphaX API key was generated.</b> Reveal it once below and copy it to a safe place.</div>{% endif %}
+          {% if keys %}
+            <div class="api-key-list">
+              {% for key in keys %}
+              <div class="key-row">
+                <div><strong>{{ key.name }}</strong><small>{{ 'ACTIVE' if key.active else 'REVOKED' }} · {{ key.prefix }}••••••••</small></div>
+                <div class="key-row-actions">{% if key.id in revealable_keys %}<a class="key-reveal-link" href="/account/keys/{{ key.id }}/reveal">Reveal once ↗</a>{% else %}<span class="key-state-label">{{ 'Ready' if key.active else 'Revoked' }}</span>{% endif %}{% if key.active %}<form method="post" action="/account/keys/{{ key.id }}/revoke" onsubmit="return confirm('Revoke only this API key?');"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="key-revoke-btn" type="submit">Revoke</button></form>{% endif %}</div>
+              </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state"><b>You have not generated an API key yet.</b><span>After your subscription is activated and at least one model is fully configured, generate your personal AlphaX key here.</span></div>
+          {% endif %}
+          {% if can_generate_key %}<form method="post" action="/account/api-key/generate" class="key-generate-form" onsubmit="return confirm('Generate another independent AlphaX API key? Existing keys will remain active.');"><input type="hidden" name="csrf" value="{{ csrf }}"><label class="small-label" for="new-api-key-name">Optional key name</label><input id="new-api-key-name" name="key_name" type="text" maxlength="100" placeholder="e.g. OpenCode laptop" autocomplete="off"><button class="primary-btn" type="submit">{{ 'Generate Another API Key' if active_keys else 'Generate API Key' }}</button></form>{% elif active_sub %}<p class="empty-copy">Your subscription is active, but the administrator has not finished configuring a model for your account.</p>{% else %}<p class="empty-copy">API key generation becomes available after your subscription is activated.</p>{% endif %}
+          <div class="key-foot"><span>Access type <b>Subscription-based</b></span><span>Active keys <b>{{ active_keys|length }}</b></span></div>
+        </article>
+        <article class="card endpoint-card">
+          <div><div class="endpoint-icon">⌘</div><h3>API endpoint</h3><p class="muted">Use this OpenAI-compatible base URL in your application.</p></div>
+          <div><div class="small-label">BASE URL</div><div class="endpoint-code"><code>{{ api_base_url }}</code><button class="copy-btn" type="button" data-copy="{{ api_base_url }}" data-label="Base URL" aria-label="Copy base URL">⧉</button></div>
+          <div class="endpoint-help">Chat completions: <code>/chat/completions</code><br>Authentication: <code>Bearer YOUR_API_KEY</code></div>
+          {% if active_keys and can_generate_key %}<div class="opencode-help"><a class="primary-btn" href="/account/opencode-config">Download OpenCode config</a><p class="muted">After downloading, set <code>ALPHAX_API_KEY</code> to the AlphaX key you revealed once. Choose your enabled AlphaX model inside OpenCode.</p></div>{% endif %}
+          </div>
+        </article>
+      </div>
+      <div class="included-note"><span class="note-icon">✦</span><div><b>API access is included with your subscription.</b><br>There is no separate API access fee. Your daily request allowance and available models are determined by your active plan and model grants.</div></div>
+      {% if grants %}<article class="card granted-models-card"><h2 class="panel-title">Models enabled for your account</h2><div class="granted-model-list">{% for grant in grants %}<span>{{ grant.model.public_name }}</span>{% endfor %}</div></article>{% endif %}
+    </section>
+
+    <section class="page" data-page="usage">
+      <div class="page-head"><div><span class="eyebrow">YOUR ACTIVITY</span><h1 class="page-title">Usage Overview</h1><p class="lede">Track the resources included with your current subscription.</p></div><span class="plan-badge">DAILY QUOTA · UTC RESET</span></div>
+      <div class="mini-stats">
+        <article class="card metric"><div class="metric-head"><span>Tokens used today</span><i class="metric-icon">◉</i></div><strong>{{ '{:,}'.format(usage.total_tokens) }}</strong><small>Tokens recorded today</small></article>
+        <article class="card metric"><div class="metric-head"><span>API requests</span><i class="metric-icon">⌘</i></div><strong>{{ '{:,}'.format(request_count_7d) }}</strong><small>Requests in the last 7 days</small></article>
+        <article class="card metric"><div class="metric-head"><span>Remaining quota</span><i class="metric-icon">↗</i></div><strong>{{ '{:,}'.format(remaining_tokens) }}</strong><small>Available before daily reset</small></article>
+      </div>
+      <div class="usage-layout">
+        <article class="card usage-panel"><h2 class="panel-title">Daily token usage</h2><p class="panel-subtitle">Actual recorded usage over the last seven days</p>
+          <div class="usage-bars" aria-label="Daily token usage chart">{% for day in daily_usage_chart %}<div class="usage-bar"><i style="--h:{{ day.height }}%" title="{{ '{:,}'.format(day.tokens) }} tokens"></i><span>{{ day.label }}</span></div>{% endfor %}</div>
+          <div class="bar-legend"><span>LOWER USAGE</span><span>HIGHER USAGE</span></div>
+        </article>
+        <article class="card usage-panel"><h2 class="panel-title">Daily allowance</h2><p class="panel-subtitle">{% if active_sub %}{{ active_sub.plan.name }} plan{% else %}No active plan{% endif %}</p>
+          <div class="quota-ring-wrap"><div class="quota-ring" style="--quota:{{ quota_percent }}%"><div><strong>{{ quota_percent }}%</strong><small>USED</small></div></div></div>
+          <div class="usage-legend"><div><span>Used today</span><b>{{ '{:,}'.format(usage.total_tokens + usage.reserved_tokens) }} tokens</b></div><div><span>Remaining</span><b>{{ '{:,}'.format(remaining_tokens) }} tokens</b></div><div><span>Daily limit</span><b>{{ '{:,}'.format(daily_limit) }} tokens</b></div><div><span>Resets</span><b>00:00 UTC</b></div></div>
+        </article>
+      </div>
+      <article class="card model-usage"><h2 class="panel-title">Usage by model</h2><p class="panel-subtitle">Token usage recorded in the last 30 days</p>
+        {% if model_usage_stats %}{% for item in model_usage_stats %}<div class="model-usage-row"><span>{{ item.name }}</span><b>{{ item.percent }}%</b><div class="thin-track"><i style="width:{{ item.percent }}%"></i></div></div>{% endfor %}{% else %}<p class="empty-copy">No model usage has been recorded yet.</p>{% endif %}
+      </article>
+    </section>
+
+    <section class="page" data-page="plans">
+      <div class="page-head"><div><span class="eyebrow">SUBSCRIPTION OPTIONS</span><h1 class="page-title">Plans &amp; Subscription</h1><p class="lede">Choose a subscription allowance. API access is included in every plan.</p></div></div>
+      <form method="post" action="/account/purchase" id="plan-purchase-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="plan-grid">
+          {% for plan in plans %}
+          <article class="card plan-card plan-option-card {% if loop.index == 2 %}featured{% endif %}">
+            <label class="plan-choice"><input type="radio" name="plan_id" value="{{ plan.id }}" {% if loop.first %}checked{% endif %} required><span class="plan-tag">{{ plan.name|upper }}</span><span class="plan-check">SELECT</span></label>
+            <h3>{{ plan.name }}</h3>
+            <div class="plan-price">{% if plan.price_amount|float > 0 %}{{ plan.price_amount }}<small> {{ plan.currency }} / {{ plan.duration_days }} days</small>{% else %}<span class="price-pending">Pricing not configured</span>{% endif %}</div>
+            <p class="plan-description">A subscription allowance for your API workloads and enabled models.</p>
+            <div class="plan-divider"></div>
+            <ul class="plan-features"><li>{{ '{:,}'.format(plan.daily_token_limit) }} tokens per day</li><li>API access included</li><li>Usage dashboard</li><li>Model access managed for your account</li></ul>
+            <div class="plan-foot">{{ plan.duration_days }}-day subscription · {{ 'Available' if plan.active else 'Unavailable' }}</div>
+          </article>
+          {% else %}<div class="card empty-state"><b>No subscription plans are published.</b><span>Please check again later.</span></div>{% endfor %}
+        </div>
+        <div class="card purchase-options">
+          <div class="purchase-section"><h2 class="panel-title">Choose your models</h2><p class="panel-subtitle">Select the model profiles you want included in this subscription request.</p>
+            <div class="model-check-grid">{% for model in models %}<label class="model-check"><input type="checkbox" name="model_ids" value="{{ model.public_id }}"><span>{{ model.public_name }}</span></label>{% else %}<p class="empty-copy">No models are currently available.</p>{% endfor %}</div>
+          </div>
+          <div class="purchase-section"><h2 class="panel-title">Payment method</h2>
+            {% if payment_methods %}<div class="payment-choice-grid">{% for method in payment_methods %}<label class="payment-choice"><input type="radio" name="payment_method" value="{{ method.method }}" {% if loop.first %}checked{% endif %} required><span>{{ method.display_name }}</span></label>{% endfor %}</div>{% else %}<p class="empty-copy">Payment methods are not configured yet. You can review plans, but checkout is not available.</p>{% endif %}
+          </div>
+          {% if pending_order %}<div class="included-note"><b>You already have a request in progress.</b><br>Request #{{ pending_order.id }} · {{ {'awaiting_payment':'Waiting for payment proof','payment_review':'Payment is under review','paid_pending_setup':'Payment approved · account setup pending','provisioning':'Your account is being prepared'}.get(pending_order.status, pending_order.status) }}. Please do not submit another payment request while this one is open. <a class="text-link" href="/account/orders/{{ pending_order.id }}/pay">Open current request ↗</a></div>{% endif %}
+          <button class="primary-btn purchase-submit" type="submit" {% if not can_purchase %}disabled{% endif %}>Continue to payment <span aria-hidden="true">↗</span></button>
+          <p class="purchase-footnote">Payment is reviewed manually. After approval, the administrator configures one or more private provider keys per selected model and activates your subscription. You then generate your own AlphaX API key.</p>
+        </div>
+      </form>
+    </section>
+
+    <section class="page" data-page="models">
+      <div class="page-head"><div><span class="eyebrow">MODEL GUIDE</span><h1 class="page-title">About Models</h1><p class="lede">Explore what each model is designed to do and which tasks it handles best.</p></div><span class="plan-badge">NO MODEL PRICES</span></div>
+      <div class="models-grid about-models-grid">
+        {% for model in models %}
+        <article class="model-card about-model-card">
+          <div class="model-art model-art-{{ 'coder' if model.public_id == 'y5z-coder-pro' else ('pro' if model.public_id == 'alphax-pro' else 'max') }}">
+          {% if model.public_image and model.public_image not in ['/static/images/models/y5z-coder-pro-user.webp', '/static/images/models/alphax-group-user.webp', '/static/images/models/y5z-coder-pro.webp', '/static/images/models/alphax-pro.webp', '/static/images/models/alphax-max.webp'] %}
+            <img src="{{ model.public_image }}" alt="{{ model.public_name }} model artwork" loading="lazy">
+          {% elif model.public_id == 'y5z-coder-pro' %}
+            <div class="model-art model-art-coder">
+            <svg viewBox="0 0 420 210" role="img" aria-label="A developer workstation showing code on a monitor">
+              <defs>
+                <linearGradient id="coderScreen" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#173d52"/><stop offset="1" stop-color="#0a1728"/></linearGradient>
+                <linearGradient id="coderFrame" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#a7f5f0"/><stop offset=".5" stop-color="#42bccc"/><stop offset="1" stop-color="#2866a5"/></linearGradient>
+                <filter id="coderGlow"><feGaussianBlur stdDeviation="9"/></filter>
+              </defs>
+              <ellipse cx="210" cy="181" rx="140" ry="12" fill="#020812" opacity=".55"/>
+              <ellipse cx="210" cy="168" rx="125" ry="20" fill="#41d9e4" opacity=".12" filter="url(#coderGlow)"/>
+              <path d="M102 28 Q102 20 112 20 H308 Q318 20 318 30 V146 H102Z" fill="#0a1422" stroke="url(#coderFrame)" stroke-width="3"/>
+              <rect x="113" y="31" width="194" height="103" rx="5" fill="url(#coderScreen)"/>
+              <path d="M113 47 H307" stroke="#7be5e5" opacity=".25"/>
+              <circle cx="124" cy="39" r="2.5" fill="#ff8d9b"/><circle cx="133" cy="39" r="2.5" fill="#f4c77b"/><circle cx="142" cy="39" r="2.5" fill="#75dfb7"/>
+              <g fill="none" stroke-linecap="round" stroke-width="3">
+                <path d="M129 60 H161" stroke="#77dbe5"/><path d="M169 60 H208" stroke="#9b8bff"/>
+                <path d="M143 73 H190" stroke="#9aafff"/><path d="M198 73 H252" stroke="#76d7c5"/>
+                <path d="M143 86 H173" stroke="#e3c58c"/><path d="M182 86 H236" stroke="#67c9e4"/>
+                <path d="M129 99 H155" stroke="#72d8cf"/><path d="M164 99 H222" stroke="#a08bff"/>
+                <path d="M143 112 H186" stroke="#68bfe0"/><path d="M195 112 H265" stroke="#79dfbf"/>
+              </g>
+              <path d="M88 148 H332 L353 171 Q355 176 346 176 H74 Q65 176 68 171Z" fill="#17344c" stroke="#4caec3" stroke-width="2"/>
+              <path d="M103 153 H317 L329 167 H91Z" fill="#0c1e31"/>
+              <rect x="185" y="156" width="50" height="4" rx="2" fill="#6cdfe4" opacity=".7"/>
+              <path d="M80 91 L63 105 L80 119 M340 91 L357 105 L340 119" fill="none" stroke="#7ce5e7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/>
+            </svg>
+          </div>
+          {% elif model.public_id == 'alphax-pro' %}
+            <div class="model-art model-art-pro">
+            <svg viewBox="0 0 420 210" role="img" aria-label="A glowing neural network with connected nodes">
+              <defs>
+                <radialGradient id="proCore"><stop stop-color="#f4eeff"/><stop offset=".28" stop-color="#bb9aff"/><stop offset="1" stop-color="#7764d8" stop-opacity="0"/></radialGradient>
+                <linearGradient id="proLine" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d6c8ff"/><stop offset="1" stop-color="#6fdde5"/></linearGradient>
+                <filter id="proGlow"><feGaussianBlur stdDeviation="7"/></filter>
+              </defs>
+              <ellipse cx="210" cy="181" rx="126" ry="12" fill="#020812" opacity=".45"/>
+              <circle cx="210" cy="103" r="92" fill="url(#proCore)" opacity=".7" filter="url(#proGlow)"/>
+              <g fill="none" stroke="url(#proLine)" stroke-width="2" opacity=".75">
+                <path d="M210 103 L133 56 L92 92 L125 151 L210 103 L288 51 L333 91 L295 151Z"/>
+                <path d="M133 56 L208 29 L288 51 M92 92 L210 103 L333 91 M125 151 L209 178 L295 151"/>
+                <path d="M133 56 L125 151 M288 51 L295 151 M92 92 L209 178 L333 91" opacity=".55"/>
+              </g>
+              <g fill="#b9a4ff" stroke="#f3eeff" stroke-width="2">
+                <circle cx="210" cy="29" r="7"/><circle cx="133" cy="56" r="7"/><circle cx="288" cy="51" r="7"/>
+                <circle cx="92" cy="92" r="6"/><circle cx="333" cy="91" r="6"/><circle cx="125" cy="151" r="7"/><circle cx="295" cy="151" r="7"/><circle cx="209" cy="178" r="6"/>
+              </g>
+              <circle cx="210" cy="103" r="37" fill="#b9a0ff" opacity=".16" stroke="#e6deff" stroke-width="2"/>
+              <circle cx="210" cy="103" r="21" fill="url(#proCore)" stroke="#e8ddff" stroke-width="2"/>
+              <circle cx="210" cy="103" r="7" fill="#f7f3ff"/>
+            </svg>
+          </div>
+          {% elif model.public_id == 'alphax-max' %}
+            <div class="model-art model-art-max">
+            <svg viewBox="0 0 420 210" role="img" aria-label="A powerful layered AI processor with luminous data pathways">
+              <defs>
+                <linearGradient id="maxTop" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e9ffff"/><stop offset=".42" stop-color="#7ed9f2"/><stop offset="1" stop-color="#6f79dc"/></linearGradient>
+                <linearGradient id="maxSide" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#488eb9"/><stop offset="1" stop-color="#152f5a"/></linearGradient>
+                <filter id="maxGlow"><feGaussianBlur stdDeviation="8"/></filter>
+              </defs>
+              <ellipse cx="210" cy="181" rx="132" ry="12" fill="#020812" opacity=".5"/>
+              <ellipse cx="210" cy="141" rx="112" ry="31" fill="#4abfe5" opacity=".2" filter="url(#maxGlow)"/>
+              <path d="M105 80 L210 28 L315 80 L210 133Z" fill="url(#maxTop)" stroke="#d6ffff" stroke-width="2"/>
+              <path d="M105 80 L210 133 V177 L105 123Z" fill="#245477" stroke="#65d0e5" stroke-width="2"/>
+              <path d="M315 80 L210 133 V177 L315 123Z" fill="url(#maxSide)" stroke="#78c9e8" stroke-width="2"/>
+              <path d="M145 80 L210 48 L275 80 L210 112Z" fill="#102b49" stroke="#baf9ff" stroke-width="2"/>
+              <path d="M145 80 L210 112 V143 L145 111Z" fill="#17476c"/><path d="M275 80 L210 112 V143 L275 111Z" fill="#203c75"/>
+              <circle cx="210" cy="83" r="17" fill="#bafaff" opacity=".9"/><circle cx="210" cy="83" r="8" fill="#fff"/>
+              <g stroke="#86e8f3" stroke-width="3" stroke-linecap="round" opacity=".85">
+                <path d="M86 75 H105 M76 92 H105 M88 109 H105 M315 75 H334 M315 92 H344 M315 109 H332"/>
+                <path d="M185 18 V28 M210 12 V28 M235 18 V28 M185 177 V190 M210 177 V197 M235 177 V190"/>
+              </g>
+              <g fill="#d8ffff"><circle cx="86" cy="75" r="3"/><circle cx="344" cy="92" r="3"/><circle cx="210" cy="12" r="3"/><circle cx="210" cy="197" r="3"/></g>
+            </svg>
+          </div>
+          {% else %}
+            <svg viewBox="0 0 420 210" role="img" aria-label="{{ model.public_name }} capability illustration"><defs><radialGradient id="genericCore"><stop stop-color="#d9ffff"/><stop offset="1" stop-color="#54bcd3" stop-opacity="0"/></radialGradient></defs><circle cx="210" cy="98" r="76" fill="url(#genericCore)"/><circle cx="210" cy="98" r="28" fill="#69dce5" opacity=".55"/><circle cx="210" cy="98" r="11" fill="#eaffff"/><path d="M210 22V174M134 98H286M156 44L264 152M264 44L156 152" stroke="#8de9ef" stroke-width="2" opacity=".58"/></svg>
+          {% endif %}
+        </div>
+          <div class="model-info"><span class="model-provider">{% if model.supports_reasoning %}REASONING{% else %}GENERAL PURPOSE{% endif %}{% if model.supports_vision %} · VISION{% endif %}</span><h3>{{ model.public_name }}</h3>
+            <p>{{ model.public_description or 'A model profile maintained by the AlphaX team. More details will be added soon.' }}</p>
+            <div class="model-capabilities">{% for skill in model.public_skills[:6] %}<span>{{ skill }}</span>{% endfor %}{% if model.supports_tools %}<span>Tool calling</span>{% endif %}{% if model.supports_streaming %}<span>Streaming</span>{% endif %}{% if model.supports_vision %}<span>Image input</span>{% endif %}</div>
+            <div class="model-best"><b>Model capabilities</b><span>{% if model.supports_reasoning %}Reasoning support{% else %}Standard generation{% endif %}{% if model.supports_tools %}, tool use{% endif %}{% if model.supports_streaming %}, live streaming{% endif %}{% if model.supports_vision %}, image understanding{% endif %}.</span></div>
+          </div>
+        </article>
+        {% else %}<div class="card empty-state"><b>No model profiles are published yet.</b><span>Model information will appear here when available.</span></div>{% endfor %}
+      </div>
+      <p class="about-models-note">Model availability and usage allowances are determined by your active subscription and the models enabled for your account.</p>
+    </section>
+  </main>
+</div>
+
+<button class="companion" id="companion" type="button" aria-label="Play with your ghost companion" aria-pressed="false" title="Tap to play">
+  <span class="pet-tip">Hello there!</span><span class="ghost-shadow"></span>
+  <svg class="ghost-figure" viewBox="0 0 100 116" aria-hidden="true">
+    <defs>
+      <linearGradient id="ghostBody" x1=".12" y1=".04" x2=".86" y2=".98"><stop stop-color="#fff"/><stop offset=".22" stop-color="#e8ffff"/><stop offset=".56" stop-color="#a2f0f2"/><stop offset=".82" stop-color="#56cbdc"/><stop offset="1" stop-color="#2087b2"/></linearGradient>
+      <radialGradient id="ghostHighlight" cx=".25" cy=".12" r=".8"><stop stop-color="#fff" stop-opacity=".95"/><stop offset=".35" stop-color="#fff" stop-opacity=".34"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+      <linearGradient id="ghostShade" x1=".1" y1="0" x2=".9" y2="1"><stop stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#03486f" stop-opacity=".65"/></linearGradient>
+      <filter id="ghostBlur"><feGaussianBlur stdDeviation="4"/></filter>
+    </defs>
+    <ellipse cx="50" cy="108" rx="27" ry="5" fill="#071b2d" opacity=".35" filter="url(#ghostBlur)"/>
+    <path d="M50 7 C28 7 13 23 13 46 L13 58 C6 54 2 59 5 67 C7 73 12 75 16 70 L16 82 C16 92 21 94 29 87 C36 80 42 82 46 91 C49 98 54 98 58 91 C63 82 69 80 76 87 C84 95 89 91 89 82 L89 70 C94 75 99 72 99 65 C99 59 94 55 88 58 L88 46 C88 23 72 7 50 7Z" fill="url(#ghostBody)" stroke="#eaffff" stroke-width="1.4"/>
+    <path d="M50 8 C29 8 15 24 15 46 L15 69 C23 65 26 72 31 79 C38 73 44 78 50 89 C57 77 64 73 72 80 C78 72 83 67 87 70 L87 46 C87 24 71 8 50 8Z" fill="url(#ghostHighlight)" opacity=".9"/>
+    <path d="M17 57 C22 32 30 20 48 17" fill="none" stroke="#fff" stroke-width="4" opacity=".36" stroke-linecap="round"/>
+    <path d="M21 82 C31 88 35 78 41 84 M58 84 C67 76 73 88 82 82" fill="none" stroke="url(#ghostShade)" stroke-width="2" opacity=".55" stroke-linecap="round"/>
+  </svg>
+  <span class="pet-eye left"></span><span class="pet-eye right"></span><span class="ghost-sparkles" aria-hidden="true"><i></i><i></i><i></i></span>
+</button>
+<nav class="mobile-nav" aria-label="Customer pages">
+  <button class="active" data-go="api"><span class="nav-icon">⌘</span><span>API Access</span></button>
+  <button data-go="usage"><span class="nav-icon">▥</span><span>Usage</span></button>
+  <button data-go="plans"><span class="nav-icon">◇</span><span>Plans</span></button>
+  <button data-go="models"><span class="nav-icon">✧</span><span>About Models</span></button>
+</nav>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

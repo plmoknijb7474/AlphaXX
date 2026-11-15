@@ -1,0 +1,26 @@
+{% extends 'layout.html' %}{% block content %}
+<header class="page-head admin-page-head">
+  <div><span class="eyebrow">ALPHAX / ADMIN</span><h1>Welcome to AlphaX</h1><p class="muted">A clear control room for subscriptions, customers, model prompts and private provider credentials.</p></div>
+  <span class="status-pill"><i class="status-dot"></i> Gateway control</span>
+</header>
+<section class="stat-grid admin-stat-grid">
+  <div class="stat"><span>Customers</span><strong>{{ stats.users }}</strong><small>Registered accounts</small></div>
+  <div class="stat"><span>AlphaX API keys</span><strong>{{ stats.keys }}</strong><small>Customer access keys</small></div>
+  <div class="stat"><span>Available models</span><strong>{{ stats.models }}</strong><small>Public model aliases</small></div>
+  <div class="stat"><span>Enabled providers</span><strong>{{ stats.providers }}</strong><small>Internal connections</small></div>
+</section>
+<section class="panel admin-work-panel">
+  <div class="panel-head"><div><span class="eyebrow">DAILY WORKFLOW</span><h2>What would you like to manage?</h2><p class="muted">The four main tasks are kept up front. Less-used configuration is inside System settings.</p></div></div>
+  <div class="quick-grid admin-quick-grid">
+    <a class="quick" href="/admin/orders"><b class="quick-number">01</b><strong>Subscription orders</strong><span>{{ stats.pending_orders }} orders awaiting setup or review. Open a request, review details, then prepare the customer's model access.</span><em>Open orders →</em></a>
+    <a class="quick" href="/admin/payment-reviews"><b class="quick-number">02</b><strong>Payment review</strong><span>{{ stats.pending_payments }} payment proofs are waiting for your decision.</span><em>Review payments →</em></a>
+    <a class="quick" href="/admin/users"><b class="quick-number">03</b><strong>Customers &amp; API keys</strong><span>Manage each customer's subscription, model access and multiple private provider keys.</span><em>Manage customers →</em></a>
+    <a class="quick" href="/admin/models"><b class="quick-number">04</b><strong>Models &amp; System Prompts</strong><span>Set one mandatory, independent System Prompt per public model and control internal routing.</span><em>Configure models →</em></a>
+  </div>
+</section>
+<section class="panel admin-flow-panel">
+  <div class="panel-head"><div><h2>Activation workflow</h2><p class="muted">Every customer follows the same controlled approval process.</p></div></div>
+  <div class="admin-flow-steps"><span><b>1</b> Payment received</span><i>→</i><span><b>2</b> Manual review</span><i>→</i><span><b>3</b> Add provider keys</span><i>→</i><span><b>4</b> Activate account</span><i>→</i><span><b>5</b> Customer generates AlphaX API keys</span></div>
+  <div class="notice"><strong>Private by design:</strong> every upstream provider key belongs to one customer and one model. The gateway never borrows another customer's key. Each model's System Prompt is injected by the server on every request.</div>
+</section>
+{% endblock %}

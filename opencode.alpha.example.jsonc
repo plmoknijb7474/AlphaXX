@@ -1,0 +1,63 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "alphax/y5z-coder-pro",
+  "providers": {
+    "alphax": {
+      "name": "AlphaX",
+      "env": ["ALPHAX_API_KEY"],
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "https://YOUR-ALPHAX-DOMAIN.example/v1"
+      },
+      "models": {
+        "y5z-coder-pro": {
+          "name": "Y5Z Coder Pro",
+          "modelID": "y5z-coder-pro",
+          "limit": {"context": 131072, "output": 32768},
+          "capabilities": {
+            "tools": true,
+            "input": ["text", "image"],
+            "output": ["text"],
+            "reasoning": {"supported": true, "effort": ["minimal", "high"]}
+          },
+          "variants": [
+            {"id": "thinking-off", "body": {"thinking_level": "minimal"}},
+            {"id": "thinking-on", "body": {"thinking_level": "high"}}
+          ]
+        },
+        "alphax-pro": {
+          "name": "AlphaX Pro",
+          "modelID": "alphax-pro",
+          "limit": {"context": 131072, "output": 32768},
+          "capabilities": {
+            "tools": true,
+            "input": ["text", "image"],
+            "output": ["text"],
+            "reasoning": {"supported": true, "effort": ["minimal", "low", "medium", "high"]}
+          },
+          "variants": [
+            {"id": "minimal", "body": {"thinking_level": "minimal"}},
+            {"id": "low", "body": {"thinking_level": "low"}},
+            {"id": "medium", "body": {"thinking_level": "medium"}},
+            {"id": "high", "body": {"thinking_level": "high"}}
+          ]
+        },
+        "alphax-max": {
+          "name": "AlphaX Max",
+          "modelID": "alphax-max",
+          "limit": {"context": 131072, "output": 32768},
+          "capabilities": {
+            "tools": true,
+            "input": ["text", "image"],
+            "output": ["text"],
+            "reasoning": {"supported": true, "effort": ["minimal", "high"]}
+          },
+          "variants": [
+            {"id": "thinking-off", "body": {"thinking_level": "minimal"}},
+            {"id": "thinking-on", "body": {"thinking_level": "high"}}
+          ]
+        }
+      }
+    }
+  }
+}
