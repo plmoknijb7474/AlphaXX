@@ -1,3 +1,11 @@
-تم تجهيز هذه النسخة لـ Render. اقرأ RENDER_DEPLOY_AR.md قبل النشر.
-الملفات المضافة/المعدلة: Dockerfile متوافق مع PORT الخاص بـ Render، render.yaml، و.dockerignore.
-يجب إعداد DATABASE_URL على PostgreSQL خارجي مثل Supabase، وإضافة SECRET_KEY وFERNET_KEY وADMIN_PASSWORD وPUBLIC_BASE_URL في Environment داخل Render.
+AlphaX v1.5.6 على Render
+
+1) أنشئ Render PostgreSQL من لوحة Render في Frankfurt.
+2) انسخ Internal Database URL من Connect.
+3) افتح خدمة alphax-api > Environment.
+4) ضع الرابط في DATABASE_URL ثم احفظ وأعد النشر.
+5) افتح /health/ready وتأكد من status=ready والإصدار 1.5.6.
+
+تنبيه: قاعدة Render الجديدة فارغة. تغيير DATABASE_URL لا ينقل بيانات Supabase. لا تبدّل الاتصال قبل نقل البيانات إذا كنت تريد الاحتفاظ بالحسابات والاشتراكات والمفاتيح.
+
+راجع RENDER_POSTGRES_SETUP_AR.md للتعليمات الكاملة وحدود الخطة المجانية.

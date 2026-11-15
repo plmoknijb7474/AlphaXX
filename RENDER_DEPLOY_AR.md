@@ -1,55 +1,55 @@
-# نشر AlphaX v1.5.5 على Render
+# نشر AlphaX v1.5.6 على Render
 
-هذه الحزمة معدّة لخدمة Render Web Service باستخدام Docker وFastAPI/Uvicorn.
+هذه الحزمة معدّة لخدمة Render Web Service باستخدام Docker وFastAPI/Uvicorn، ويمكنها الاتصال بـ Render PostgreSQL عبر عنوان الاتصال الداخلي.
 
-## قبل النشر
+## الإعداد الموصى به
 
-- استخدم PostgreSQL خارجياً مثل Supabase. لا تستخدم SQLite على Render Free لأن نظام الملفات للخدمة مؤقت وقد تفقد قاعدة البيانات عند إعادة النشر أو إعادة التشغيل.
-- لا ترفع ملف `.env` أو أي قاعدة بيانات أو مفاتيح API إلى GitHub.
-- الخطة المجانية قد توقف الخدمة عند الخمول، لذلك قد يتأخر أول طلب حتى تستيقظ الخدمة. ليست مناسبة كضمان تشغيل تجاري مستمر.
+- Runtime: Docker
+- Root Directory: فارغ إذا كان `Dockerfile` في جذر المستودع
+- Build Command: فارغ
+- Start Command: فارغ؛ `Dockerfile` يشغّل Uvicorn
+- Health Check Path: `/health/ready`
+- المنطقة: Frankfurt لخدمة `alphax-api` وقاعدة البيانات
 
-## النشر من GitHub
+## قاعدة البيانات
 
-1. فك ضغط الحزمة وارفع محتويات المجلد إلى مستودع GitHub جديد أو فرع مستقل. يجب أن تكون ملفات `Dockerfile` و`render.yaml` في جذر المستودع بجانب `requirements.txt` ومجلد `app`.
-2. افتح Render ثم New + → Blueprint، واختر المستودع والفرع.
-3. سيقرأ Render ملف `render.yaml` وينشئ خدمة `alphax-api` بخطة Free ومنطقة Frankfurt.
-4. في Environment للخدمة، أدخل:
-   - `DATABASE_URL`: رابط PostgreSQL من Supabase (يفضّل Session Pooler مع `sslmode=require`).
-   - `SECRET_KEY`: قيمة عشوائية طويلة وفريدة.
-   - `FERNET_KEY`: مفتاح Fernet صالح، أنشئه محلياً بالأمر أدناه.
-   - `ADMIN_PASSWORD`: كلمة مرور قوية لا تقل عن 14 محرفاً.
-   - `PUBLIC_BASE_URL`: رابط Render الكامل مثل `https://alphax-api.onrender.com` بعد معرفة اسم الخدمة.
-5. احفظ المتغيرات وانتظر اكتمال Build وDeploy. افحص `/health/ready` ويجب أن يعيد `status: ready`.
-6. افتح `/login` وسجّل الدخول باسم `admin` وكلمة المرور التي وضعتها في `ADMIN_PASSWORD`.
+أنشئ Render PostgreSQL مستقلة من لوحة Render، ثم انسخ **Internal Database URL** من تبويب Connect، وضعه في متغير `DATABASE_URL` ضمن Environment لخدمة `alphax-api`.
 
-## توليد FERNET_KEY محلياً
+استخدم Internal Database URL فقط عندما تكون خدمة AlphaX وقاعدة البيانات في نفس Workspace والمنطقة. لا تضع الرابط في GitHub ولا في ملفات المشروع.
 
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
+الشرح الكامل موجود في `RENDER_POSTGRES_SETUP_AR.md`.
 
-لا تغيّر `FERNET_KEY` بعد حفظ مفاتيح مزودي Google المشفرة في قاعدة البيانات؛ تغييرها يجعل الأسرار القديمة غير قابلة لفك التشفير.
+## متغيرات Environment
 
-## ملاحظات قاعدة البيانات
+احتفظ بالمتغيرات التالية في Render:
 
-- الإصدار 1.5.4 يضيف الأعمدة الناقصة إلى الجداول الموجودة بشكل إضافي عند بدء التشغيل. لا يحذف صفوف المستخدمين أو الاشتراكات. راقب Render Logs بعد النشر وتأكد من اكتمال بدء التشغيل.
+- `ENVIRONMENT=production`
+- `APP_NAME=AlphaX`
+- `COOKIE_SECURE=true`
+- `ADMIN_USERNAME=admin` (أو اسم الأدمن الحالي الذي تستخدمه)
+- `SECRET_KEY` — قيمة قوية وفريدة
+- `FERNET_KEY` — مفتاح Fernet صالح وثابت
+- `ADMIN_PASSWORD` — كلمة مرور قوية
+- `DATABASE_URL` — Internal Database URL من Render PostgreSQL
+- `PUBLIC_BASE_URL` — رابط خدمة AlphaX الكامل على Render
+- `DAILY_QUOTA_TIMEZONE=UTC`
+- `PAYMENT_REVIEW_TIMEZONE=Asia/Damascus`
 
-- إذا كانت قاعدة Supabase تحتوي جداول AlphaX بالفعل، استخدمها فقط إذا كانت قاعدة المشروع المقصودة وبنفس إصدار المخطط. لا تشغّل نقل SQLite إلى قاعدة غير فارغة.
-- عند أول تشغيل على قاعدة فارغة، ينشئ التطبيق الجداول والحساب الإداري والخطط الافتراضية تلقائياً.
-- إذا كنت تنقل بيانات موقع PythonAnywhere الحالي، خذ نسخة احتياطية ونفّذ ترحيل SQLite إلى Supabase مرة واحدة قبل توجيه Render إلى القاعدة. لا توصل نسختين من التطبيق إلى قاعدة الإنتاج أثناء الترحيل.
+لا تغيّر `SECRET_KEY` أو `FERNET_KEY` عند التحديث. تغيير Fernet key قد يمنع قراءة مفاتيح المزوّد المشفرة سابقاً.
+
+## ملاحظة حول البيانات
+
+تغيير `DATABASE_URL` إلى قاعدة Render جديدة لا ينقل أي بيانات من Supabase. إذا كانت Supabase تحتوي حسابات أو اشتراكات أو مفاتيح أو مدفوعات، اقرأ فقرة نقل البيانات في `RENDER_POSTGRES_SETUP_AR.md` ولا تبدّل الاتصال قبل إتمام النقل.
+
+## الخطط المجانية
+
+خدمة الويب المجانية قد تدخل في وضع الخمول. قاعدة Render PostgreSQL المجانية محدودة بـ 1 GB وتنتهي بعد 30 يوماً، ثم توجد مهلة 14 يوماً للترقية قبل حذف البيانات. لا تستخدم قاعدة مجانية لبيانات إنتاج دائمة.
 
 ## التحقق
-
-- افتح `/health` وتأكد أن مرحلة الخدمة تحمل `v1.5.5`، ثم افتح `/health/ready` ويجب أن يعيد `status: ready` وإصدار `1.5.5`.
 
 ```bash
 curl -i https://YOUR-SERVICE.onrender.com/health
 curl -i https://YOUR-SERVICE.onrender.com/health/ready
 ```
 
-الاختبارات المحلية لا تثبت صلاحية مفاتيح Google أو توفر معرفات النماذج فعلياً؛ اختبر طلباً حقيقياً لكل نموذج قبل تفعيل المشتركين.
-
-
-## التحديث إلى 1.5.5
-
-يضيف هذا الإصدار مزامنة تسلسلات مفاتيح PostgreSQL التلقائية مع أكبر المعرّفات الموجودة عند بدء التطبيق، ويمنع عرض أخطاء قاعدة البيانات الأخرى كأن اسم المستخدم مكرر. لا تحذف قاعدة البيانات ولا تغيّر متغيرات البيئة. تحقق من الإصدار عبر `/health/ready` بعد النشر.
+تأكد أن الحالة `ready` وأن الإصدار `1.5.6` ظاهر. ثم اختبر تسجيل الدخول والتسجيل وصفحات لوحة الإدارة.
