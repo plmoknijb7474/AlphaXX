@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import re
+import secrets
 import httpx
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -242,9 +243,20 @@ def plans_page(request: Request, db: Session = Depends(get_db)):
 @router.post("/plans")
 def create_plan(request: Request, name: str = Form(...), daily_token_limit: int = Form(...), price_amount: str = Form("0"), csrf: str = Form(...), db: Session = Depends(get_db)):
     admin_required(request, db); check_csrf(request, csrf)
-    if daily_token_limit <= 0: raise HTTPException(400, "Quota must be positive")
-    db.add(Plan(name=name.strip(), daily_token_limit=daily_token_limit, duration_days=30, price_amount=price_amount, currency="USDT", active=True)); db.commit()
-    return RedirectResponse("/admin/plans", status_code=303)
+    clean_name = name.strip()
+    if not clean_name:
+        return RedirectResponse("/admin/plans?message=invalid_name", status_code=303)
+    if daily_token_limit <= 0:
+        return RedirectResponse("/admin/plans?message=invalid_quota", status_code=303)
+    if db.scalar(select(Plan.id).where(func.lower(Plan.name) == clean_name.lower())):
+        return RedirectResponse("/admin/plans?message=plan_exists", status_code=303)
+    try:
+        db.add(Plan(name=clean_name, daily_token_limit=daily_token_limit, duration_days=30, price_amount=price_amount.strip(), currency="USDT", active=True))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return RedirectResponse("/admin/plans?message=plan_exists", status_code=303)
+    return RedirectResponse("/admin/plans?message=plan_created", status_code=303)
 
 
 @router.post("/plans/{plan_id}/update")

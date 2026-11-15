@@ -101,6 +101,8 @@ def test_registration_uses_only_username_and_password_and_rejects_duplicates():
         }, follow_redirects=False)
         assert response.status_code == 303
         assert response.headers["location"] == "/account"
+        account_page = client.get("/account")
+        assert account_page.status_code == 200
         with Session() as db:
             new_user = db.scalar(select(User).where(User.username == "new_customer"))
             assert new_user is not None

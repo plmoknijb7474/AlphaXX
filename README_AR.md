@@ -26,3 +26,8 @@ Use `python scripts/configure_supabase.py` from Bash. It prompts for the Supabas
 python -m compileall -q app tests scripts
 pytest -q
 ```
+
+
+## الإصدار 1.5.4
+
+راجع `PATCH_NOTES_V1.5.4_AR.md` لإصلاحات توافق مخطط قاعدة البيانات وأخطاء إجراءات لوحة الأدمن. الإصلاحات الإضافية تُطبّق عند بدء التطبيق بعد النشر.

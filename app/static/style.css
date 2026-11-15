@@ -274,7 +274,7 @@ table{text-align:left}th,td{text-align:left}
 @media(max-width:560px){.alpha-companion{width:56px;height:51px;right:13px;bottom:13px}.alpha-companion-eye{top:21px}.alpha-companion-eye.eye-a{left:19px}.alpha-companion-eye.eye-b{right:19px}.main{padding-bottom:84px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}body:before,.main,.alpha-aurora,.alpha-fireflies i,.alpha-dust i,.alpha-meteor,.alpha-companion,.alpha-companion-eye{animation:none!important}.alpha-fireflies i{opacity:.4}.panel,.stat,.plan-card,.quick,.btn{transition:none!important}}
 
-/* AlphaX v1.5.1 — unified admin workspace */
+/* AlphaX v1.5.4 — unified admin workspace */
 :root{--bg:#07111f;--panel:#101d2d;--panel2:#14243a;--line:rgba(145,185,218,.16);--text:#edf6ff;--muted:#94abc2;--gold:#69dce6;--green:#70dfb7;--red:#ff8798;--cyan:#69e2e8;--violet:#a18cff;--shadow:0 18px 55px rgba(0,0,0,.24)}
 html{min-height:100%;scroll-behavior:smooth}
 body.admin-body{min-height:100vh;background:radial-gradient(ellipse at 12% 0%,rgba(49,184,204,.12),transparent 38%),radial-gradient(ellipse at 90% 18%,rgba(112,91,199,.12),transparent 34%),linear-gradient(145deg,#07111f,#081322 62%,#07101c);color:var(--text);font-family:Inter,system-ui,sans-serif;display:flex}

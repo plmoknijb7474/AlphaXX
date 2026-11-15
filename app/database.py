@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import re
-from sqlalchemy import create_engine, inspect, text
+import json
+import logging
+from datetime import date, datetime
+from sqlalchemy import (
+    Boolean, Date, DateTime, Integer, JSON, String, Text,
+    Index, create_engine, inspect, text
+)
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+
+logger = logging.getLogger("alphax.database")
 
 from .config import settings
 
@@ -60,12 +68,192 @@ def get_db():
         db.close()
 
 
+def _quote_identifier(target_engine, value: str) -> str:
+    return target_engine.dialect.identifier_preparer.quote(value)
+
+
+def _column_default_sql(column, dialect_name: str) -> str | None:
+    """Return a portable SQL default for adding a column to a populated legacy table."""
+    if column.server_default is not None:
+        return str(column.server_default.arg)
+
+    default = column.default
+    if default is not None:
+        value = default.arg
+        if callable(value):
+            if isinstance(column.type, JSON):
+                try:
+                    sample = value()
+                except Exception:
+                    sample = None
+                if isinstance(sample, list):
+                    return "'[]'"
+                if isinstance(sample, dict):
+                    return "'{}'"
+            if isinstance(column.type, (Date, DateTime)):
+                return "CURRENT_DATE" if isinstance(column.type, Date) and not isinstance(column.type, DateTime) else "CURRENT_TIMESTAMP"
+        else:
+            if isinstance(value, bool):
+                return ("TRUE" if value else "FALSE") if dialect_name == "postgresql" else ("1" if value else "0")
+            if isinstance(value, (int, float)):
+                return str(value)
+            if isinstance(value, (datetime, date)):
+                return "CURRENT_TIMESTAMP" if isinstance(value, datetime) else "CURRENT_DATE"
+            if isinstance(column.type, JSON):
+                return "'" + json.dumps(value, ensure_ascii=False).replace("'", "''") + "'"
+            if isinstance(value, str):
+                return "'" + value.replace("'", "''") + "'"
+
+    if isinstance(column.type, Boolean):
+        return "FALSE" if dialect_name == "postgresql" else "0"
+    if isinstance(column.type, Integer):
+        return "0"
+    if isinstance(column.type, JSON):
+        # SQLAlchemy JSON fields in AlphaX are either arrays or objects.
+        return "'[]'" if column.key in {"public_skills", "public_highlights", "reasoning_variants", "fallback_upstream_ids", "requested_model_ids"} else "'{}'"
+    if isinstance(column.type, DateTime):
+        return "CURRENT_TIMESTAMP"
+    if isinstance(column.type, Date):
+        return "CURRENT_DATE"
+    if isinstance(column.type, (String, Text)):
+        return "''"
+    return None
+
+
+def _reconcile_model_columns(conn, target_engine) -> list[str]:
+    """Add all columns known to current ORM models to existing legacy tables.
+
+    create_all() creates new tables but intentionally does not alter existing ones.
+    Earlier releases only migrated a short allow-list of columns, which left other
+    customer/admin actions able to fail with UndefinedColumn. This additive pass
+    brings every existing table up to the current ORM column set without dropping
+    or rewriting existing user data.
+    """
+    # Import lazily to avoid database <-> models import cycles.
+    from . import models as _models  # noqa: F401
+
+    inspector = inspect(conn)
+    existing_tables = set(inspector.get_table_names())
+    missing_primary_keys: list[str] = []
+    added: list[str] = []
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        current_columns = {item["name"] for item in inspect(conn).get_columns(table.name)}
+        for column in table.columns:
+            if column.name in current_columns:
+                continue
+            if column.primary_key:
+                missing_primary_keys.append(f"{table.name}.{column.name}")
+                continue
+
+            type_sql = column.type.compile(dialect=target_engine.dialect)
+            default_sql = _column_default_sql(column, target_engine.dialect.name)
+            # A required field with no safe default (especially a foreign key) is
+            # added nullable for legacy rows. New ORM writes still supply it.
+            can_be_not_null = not column.nullable and (default_sql is not None) and not column.foreign_keys
+            # SQLite disallows adding a populated-table column with a non-constant
+            # default such as CURRENT_TIMESTAMP. Add it nullable, then backfill it.
+            sqlite_dynamic_default = (
+                target_engine.dialect.name == "sqlite"
+                and default_sql in {"CURRENT_TIMESTAMP", "CURRENT_DATE"}
+            )
+            if sqlite_dynamic_default:
+                nullable_sql = ""
+                default_clause = ""
+            else:
+                nullable_sql = " NOT NULL" if can_be_not_null else ""
+                default_clause = f" DEFAULT {default_sql}" if default_sql is not None else ""
+            table_sql = _quote_identifier(target_engine, table.name)
+            column_sql = _quote_identifier(target_engine, column.name)
+            conn.execute(text(
+                f"ALTER TABLE {table_sql} ADD COLUMN {column_sql} {type_sql}{nullable_sql}{default_clause}"
+            ))
+            if sqlite_dynamic_default:
+                conn.execute(text(
+                    f"UPDATE {table_sql} SET {column_sql} = {default_sql} WHERE {column_sql} IS NULL"
+                ))
+            added.append(f"{table.name}.{column.name}")
+            current_columns.add(column.name)
+
+    if missing_primary_keys:
+        raise RuntimeError(
+            "Legacy database is missing primary-key columns that cannot be safely added automatically: "
+            + ", ".join(missing_primary_keys)
+        )
+
+    if added:
+        logger.info("AlphaX database compatibility migration added %d missing columns: %s", len(added), ", ".join(added))
+    else:
+        logger.info("AlphaX database schema already contains all current ORM columns")
+    return added
+
+
+def _reconcile_model_indexes(conn) -> None:
+    """Restore ORM indexes after legacy usernames and data have been normalized."""
+    from . import models as _models  # noqa: F401
+    existing_tables = set(inspect(conn).get_table_names())
+    # Recreate ORM indexes that may have been skipped when create_all() encountered
+    # an older, already-existing table. Use savepoints so duplicate legacy data in
+    # one optional unique index cannot roll back the column repairs.
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        current_columns = {item["name"] for item in inspect(conn).get_columns(table.name)}
+        existing_indexes = inspect(conn).get_indexes(table.name)
+        existing_index_names = {item.get("name") for item in existing_indexes}
+        existing_unique_sets = {
+            frozenset(item.get("column_names") or [])
+            for item in inspect(conn).get_unique_constraints(table.name)
+        }
+        existing_unique_sets.update(
+            frozenset(item.get("column_names") or [])
+            for item in existing_indexes if item.get("unique")
+        )
+        for index in sorted(table.indexes, key=lambda item: item.name or ""):
+            if not all(col.name in current_columns for col in index.columns):
+                continue
+            if index.name in existing_index_names:
+                continue
+            colset = frozenset(col.name for col in index.columns)
+            if index.unique and colset in existing_unique_sets:
+                continue
+            try:
+                with conn.begin_nested():
+                    index.create(conn, checkfirst=True)
+                existing_index_names.add(index.name)
+                if index.unique:
+                    existing_unique_sets.add(colset)
+            except Exception as exc:
+                logger.warning("Could not restore index %s on %s: %s", index.name, table.name, exc)
+
+        for constraint in table.constraints:
+            if constraint.__class__.__name__ != "UniqueConstraint":
+                continue
+            names = [col.name for col in constraint.columns]
+            colset = frozenset(names)
+            if not names or not all(name in current_columns for name in names) or colset in existing_unique_sets:
+                continue
+            index_name = constraint.name or f"uq_{table.name}_{'_'.join(names)}"
+            if index_name in existing_index_names:
+                continue
+            try:
+                with conn.begin_nested():
+                    Index(index_name, *[table.c[name] for name in names], unique=True).create(conn, checkfirst=True)
+                existing_index_names.add(index_name)
+                existing_unique_sets.add(colset)
+            except Exception as exc:
+                logger.warning("Could not restore unique constraint %s on %s: %s", index_name, table.name, exc)
+
+
+
 def upgrade_schema(bind=None):
     """Upgrade old AlphaX schemas on SQLite or PostgreSQL and retire the old shared-key pool."""
     target_engine = bind or engine
     dialect = target_engine.dialect.name
     datetime_type = "TIMESTAMP WITH TIME ZONE" if dialect == "postgresql" else "DATETIME"
     bool_default = "FALSE" if dialect == "postgresql" else "0"
+    bool_true = "TRUE" if dialect == "postgresql" else "1"
     with target_engine.begin() as conn:
         additions = {
             "providers": {
@@ -98,6 +286,10 @@ def upgrade_schema(bind=None):
                 "username": "VARCHAR(80)",
                 "display_name": "VARCHAR(120) NOT NULL DEFAULT ''",
                 "password_hash": "VARCHAR(256)",
+                # Some older/custom Supabase schemas have username and display_name
+                # but are missing the active flag expected by customer login/API auth.
+                # Default existing rows to enabled so this additive migration preserves access.
+                "active": f"BOOLEAN NOT NULL DEFAULT {bool_true}",
             },
             "api_keys": {"secret_delivery_encrypted": "TEXT"},
             "purchase_orders": {
@@ -118,9 +310,20 @@ def upgrade_schema(bind=None):
             if table not in tables:
                 continue
             existing = {col["name"] for col in inspect(conn).get_columns(table)}
+            added_users_active = table == "users" and "active" not in existing
             for name, ddl in columns.items():
                 if name not in existing:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+            if table == "users":
+                # Carry forward a legacy is_active flag if this database used that name.
+                if added_users_active and "is_active" in existing:
+                    conn.execute(text("UPDATE users SET active = is_active"))
+                # A nullable legacy active column should not silently lock customers out.
+                conn.execute(text(f"UPDATE users SET active = {bool_true} WHERE active IS NULL"))
+
+        # Reconcile every mapped ORM column, not only the historical short allow-list.
+        # This prevents pages and form actions from failing later on older Supabase schemas.
+        _reconcile_model_columns(conn, target_engine)
 
         # New customer accounts use usernames. Preserve old accounts by deriving a
         # stable username from the local part of their former email address.
@@ -129,13 +332,16 @@ def upgrade_schema(bind=None):
             user_columns = {col["name"] for col in inspect(conn).get_columns("users")}
             email_expr = "email" if "email" in user_columns else "NULL"
             rows = conn.execute(text(f"SELECT id, {email_expr} AS email, username FROM users ORDER BY id")).mappings().all()
-            used = {str(row["username"]).lower() for row in rows if row["username"]}
+            used: set[str] = set()
+            planned_names: list[tuple[int, str, str | None]] = []
             for row in rows:
-                if row["username"]:
-                    continue
-                email = str(row["email"] or "")
-                local = email.split("@", 1)[0].lower()
-                base = re.sub(r"[^a-z0-9_.-]+", "", local).strip("._-")[:24]
+                existing_username = str(row["username"] or "").strip().lower()
+                if existing_username:
+                    base = re.sub(r"[^a-z0-9_.-]+", "", existing_username).strip("._-")[:24]
+                else:
+                    email = str(row["email"] or "")
+                    local = email.split("@", 1)[0].lower()
+                    base = re.sub(r"[^a-z0-9_.-]+", "", local).strip("._-")[:24]
                 if len(base) < 3:
                     base = f"user{row['id']}"
                 candidate = base
@@ -144,9 +350,30 @@ def upgrade_schema(bind=None):
                     tail = str(suffix)
                     candidate = f"{base[:30-len(tail)]}{tail}"
                     suffix += 1
-                conn.execute(text("UPDATE users SET username = :username WHERE id = :id"),
-                             {"username": candidate, "id": row["id"]})
+                planned_names.append((row["id"], candidate, row["username"]))
                 used.add(candidate.lower())
+
+            # Existing deployments may already have a case-sensitive unique index.
+            # Move rows through collision-free temporary names before lowercasing;
+            # otherwise changing `Alpha` to `alpha` could collide with another row.
+            current_names = {str(row["username"] or "").lower() for row in rows}
+            temp_names: list[tuple[int, str, str]] = []
+            for user_id, candidate, old_name in planned_names:
+                if candidate == old_name:
+                    continue
+                temp = f"alphaxmigration{user_id}"
+                suffix = 1
+                while temp.lower() in current_names or temp.lower() in used:
+                    temp = f"alphaxmigration{user_id}{suffix}"
+                    suffix += 1
+                current_names.add(temp.lower())
+                temp_names.append((user_id, temp, candidate))
+            for user_id, temp, _candidate in temp_names:
+                conn.execute(text("UPDATE users SET username = :username WHERE id = :id"),
+                             {"username": temp, "id": user_id})
+            for user_id, _temp, candidate in temp_names:
+                conn.execute(text("UPDATE users SET username = :username WHERE id = :id"),
+                             {"username": candidate, "id": user_id})
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)"))
 
         # Remove legacy uniqueness on (user_id, model_id) so each pair can own
@@ -254,3 +481,6 @@ def upgrade_schema(bind=None):
         for table in ("user_route_credential_assignments", "model_routes", "provider_credentials", "system_prompts"):
             if table in set(inspect(conn).get_table_names()):
                 conn.execute(text(f"DROP TABLE {table}"))
+
+        # Restore indexes only after usernames have been normalized and legacy tables migrated.
+        _reconcile_model_indexes(conn)

@@ -21,3 +21,18 @@ def test_username_upgrade_backfills_legacy_users_and_keeps_records():
     assert rows[2].username == "user3"
     assert [row.password_hash for row in rows] == ["hash-a", "hash-b", "hash-c"]
     engine.dispose()
+
+
+def test_username_upgrade_normalizes_existing_case_duplicates():
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR(255), username VARCHAR(80), password_hash VARCHAR(256), active BOOLEAN NOT NULL DEFAULT 1, created_at DATETIME)"))
+        conn.execute(text("INSERT INTO users (id, email, username, password_hash, active, created_at) VALUES (1, 'a@example.test', 'Alpha', 'hash-1', 1, CURRENT_TIMESTAMP)"))
+        conn.execute(text("INSERT INTO users (id, email, username, password_hash, active, created_at) VALUES (2, 'b@example.test', 'alpha', 'hash-2', 1, CURRENT_TIMESTAMP)"))
+        conn.execute(text("CREATE UNIQUE INDEX ix_users_username ON users (username)"))
+    upgrade_schema(engine)
+    with engine.connect() as conn:
+        names = conn.execute(text("SELECT username FROM users ORDER BY id")).scalars().all()
+    assert names[0] == "alpha"
+    assert names[1] == "alpha1"
+    engine.dispose()
