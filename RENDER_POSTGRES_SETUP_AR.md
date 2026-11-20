@@ -69,7 +69,7 @@ curl -i https://YOUR-SERVICE.onrender.com/health
 curl -i https://YOUR-SERVICE.onrender.com/health/ready
 ```
 
-يجب أن تكون نتيجة `/health/ready` بحالة `ready`، وأن يظهر إصدار AlphaX `1.5.6`.
+يجب أن تكون نتيجة `/health/ready` بحالة `ready`، وأن يظهر إصدار AlphaX `1.5.9`.
 
 بعد ذلك اختبر:
 

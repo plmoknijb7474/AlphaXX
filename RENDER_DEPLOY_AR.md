@@ -1,49 +1,43 @@
-# نشر AlphaX v1.5.6 على Render
+# نشر AlphaX v1.5.10 على Render
 
-هذه الحزمة معدّة لخدمة Render Web Service باستخدام Docker وFastAPI/Uvicorn، ويمكنها الاتصال بـ Render PostgreSQL عبر عنوان الاتصال الداخلي.
+هذه الحزمة مهيأة لخدمة Render Web Service باستخدام Docker وFastAPI/Uvicorn.
 
-## الإعداد الموصى به
+## إعداد الخدمة
 
 - Runtime: Docker
-- Root Directory: فارغ إذا كان `Dockerfile` في جذر المستودع
+- Root Directory: اتركه فارغاً إذا كان Dockerfile في جذر المستودع
 - Build Command: فارغ
-- Start Command: فارغ؛ `Dockerfile` يشغّل Uvicorn
+- Start Command: فارغ؛ Dockerfile يشغّل Uvicorn
 - Health Check Path: `/health/ready`
 - المنطقة: Frankfurt لخدمة `alphax-api` وقاعدة البيانات
 
-## قاعدة البيانات
-
-أنشئ Render PostgreSQL مستقلة من لوحة Render، ثم انسخ **Internal Database URL** من تبويب Connect، وضعه في متغير `DATABASE_URL` ضمن Environment لخدمة `alphax-api`.
-
-استخدم Internal Database URL فقط عندما تكون خدمة AlphaX وقاعدة البيانات في نفس Workspace والمنطقة. لا تضع الرابط في GitHub ولا في ملفات المشروع.
-
-الشرح الكامل موجود في `RENDER_POSTGRES_SETUP_AR.md`.
-
 ## متغيرات Environment
 
-احتفظ بالمتغيرات التالية في Render:
+احتفظ بمتغيرات Render الحالية كما هي: `ENVIRONMENT`, `APP_NAME`, `COOKIE_SECURE`, `ADMIN_USERNAME`, `SECRET_KEY`, `FERNET_KEY`, `ADMIN_PASSWORD`, `DATABASE_URL`, `PUBLIC_BASE_URL`, `DAILY_QUOTA_TIMEZONE`, `PAYMENT_REVIEW_TIMEZONE`. لا تغيّر `SECRET_KEY` أو `FERNET_KEY` أو `DATABASE_URL` في هذا التحديث. لا تضف مفاتيح العملاء إلى Environment.
 
-- `ENVIRONMENT=production`
-- `APP_NAME=AlphaX`
-- `COOKIE_SECURE=true`
-- `ADMIN_USERNAME=admin` (أو اسم الأدمن الحالي الذي تستخدمه)
-- `SECRET_KEY` — قيمة قوية وفريدة
-- `FERNET_KEY` — مفتاح Fernet صالح وثابت
-- `ADMIN_PASSWORD` — كلمة مرور قوية
-- `DATABASE_URL` — Internal Database URL من Render PostgreSQL
-- `PUBLIC_BASE_URL` — رابط خدمة AlphaX الكامل على Render
-- `DAILY_QUOTA_TIMEZONE=UTC`
-- `PAYMENT_REVIEW_TIMEZONE=Asia/Damascus`
+## توزيع النماذج v1.5.10
 
-لا تغيّر `SECRET_KEY` أو `FERNET_KEY` عند التحديث. تغيير Fernet key قد يمنع قراءة مفاتيح المزوّد المشفرة سابقاً.
+| النموذج | المزوّد | المعرّف الداخلي | التفكير |
+|---|---|---|---|
+| Y5Z Coder Pro | APInex | `free/deepseek-v4-pro-0813` | ON/OFF + low / medium / high |
+| AlphaX Pro | Regolo | `gemma4-31b` | low / medium / high |
+| AlphaX Max | Google AI Studio | `gemini-3.6-flash` | minimal / low / medium / high |
 
-## ملاحظة حول البيانات
+## ترقية V12 — DeepSeek Reasoning ON/OFF
 
-تغيير `DATABASE_URL` إلى قاعدة Render جديدة لا ينقل أي بيانات من Supabase. إذا كانت Supabase تحتوي حسابات أو اشتراكات أو مفاتيح أو مدفوعات، اقرأ فقرة نقل البيانات في `RENDER_POSTGRES_SETUP_AR.md` ولا تبدّل الاتصال قبل إتمام النقل.
+تضيف الترقية مفتاحاً مستقلاً لإيقاف التفكير في Y5Z Coder Pro. خيار OFF يرسل `thinking: {"type":"disabled"}` إلى مسار APInex؛ وعند ON ترسل قيمة `reasoning_effort` المختارة من Low / Medium / High. لا تؤثر الترقية على AlphaX Pro أو AlphaX Max أو المفاتيح أو الاشتراكات أو System Prompts.
 
-## الخطط المجانية
+## ترقية V11
 
-خدمة الويب المجانية قد تدخل في وضع الخمول. قاعدة Render PostgreSQL المجانية محدودة بـ 1 GB وتنتهي بعد 30 يوماً، ثم توجد مهلة 14 يوماً للترقية قبل حذف البيانات. لا تستخدم قاعدة مجانية لبيانات إنتاج دائمة.
+بعد أول تشغيل، تنفذ ترقية V11 مرة واحدة: تنقل AlphaX Max فقط من OpenRouter إلى Google AI Studio. تعطّل مفاتيح OpenRouter النشطة دون حذفها، وتعيد تفعيل مفاتيح Google القديمة التي تحمل علامة `PROVIDER_CHANGED` من ترقية V9. تظل Y5Z على APInex وAlphaX Pro على Regolo. لا تحذف الترقية المستخدمين أو الاشتراكات أو الدفع أو الاستخدام أو System Prompts أو منح النماذج أو مفاتيح AlphaX.
+
+## إضافة مفاتيح المزوّد
+
+1. Y5Z Coder Pro: أضف مفتاح APInex في لوحة Customers → الحساب → Y5Z Coder Pro.
+2. AlphaX Pro: أنشئ مفتاحاً من [Regolo API Keys](https://dashboard.regolo.ai/api-keys) وأضفه تحت AlphaX Pro. الوصول إلى Gemma على Regolo يخضع لحصص التجربة/الخطة.
+3. AlphaX Max: أنشئ مفتاحاً من [Google AI Studio API Keys](https://aistudio.google.com/apikey) وأضفه تحت AlphaX Max.
+
+لا تضع مفتاحاً عاماً مشتركاً في Render Environment؛ المفاتيح تُضاف لكل عميل ونموذج وتُخزن مشفرة.
 
 ## التحقق
 
@@ -52,4 +46,4 @@ curl -i https://YOUR-SERVICE.onrender.com/health
 curl -i https://YOUR-SERVICE.onrender.com/health/ready
 ```
 
-تأكد أن الحالة `ready` وأن الإصدار `1.5.6` ظاهر. ثم اختبر تسجيل الدخول والتسجيل وصفحات لوحة الإدارة.
+يجب أن يعرض `/health/ready` الحالة `ready` والإصدار `1.5.10`. بعد النشر أعد تنزيل إعداد OpenCode من صفحة الحساب. اختبر Y5Z مع Reasoning OFF ثم ON على المستويات Low / Medium / High، وبعدها اختبر النموذجين الآخرين كلّاً على حدة. لا يمكن اعتبار اختبار المزوّد حياً ناجحاً قبل وضع مفاتيح صحيحة وتجربتها.

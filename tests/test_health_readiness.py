@@ -18,7 +18,7 @@ class _FakeConnection:
 def test_readiness_returns_ready_when_database_query_succeeds(monkeypatch):
     monkeypatch.setattr(main.engine, "connect", lambda: _FakeConnection())
     result = main.health_ready()
-    assert result == {"status": "ready", "service": "alpha-api", "version": "1.5.5"}
+    assert result == {"status": "ready", "service": "alpha-api", "version": "1.5.10"}
 
 
 def test_readiness_returns_503_without_leaking_database_error(monkeypatch):

@@ -1,112 +1,50 @@
-# AlphaX v1.5.0 — ابدأ من هنا
+# AlphaX v1.5.10 — ابدأ من هنا
 
-هذه النسخة تصحح ربط النماذج، وتتيح لك إضافة أي نموذج Google AI Studio من لوحة الأدمن مع System Prompt خاص به، وتضيف أداة تفاعلية لإدخال رابط Supabase داخل `.env` من Bash دون إظهاره على الشاشة.
+هذا الإصدار يضيف مفتاح Reasoning ON/OFF حقيقياً إلى Y5Z Coder Pro، مع الحفاظ على مستويات Low / Medium / High وعلى جميع توجيهات النماذج الأخرى.
 
-## النماذج الافتراضية
+## التوجيه النهائي
 
-| الاسم الوهمي الظاهر للمشترك | المعرّف الداخلي لدى Google AI Studio | مستويات التفكير |
-|---|---|---|
-| Y5Z Coder Pro | `gemma-4-26b-a4b-it` | `minimal` / `high` |
-| AlphaX Pro | `gemini-3.6-flash` | `minimal` / `low` / `medium` / `high` |
-| AlphaX Max | `gemma-4-31b-it` | `minimal` / `high` |
+| الاسم الظاهر | المزوّد | المعرّف الداخلي | مستويات التفكير |
+|---|---|---|---|
+| Y5Z Coder Pro | APInex | `free/deepseek-v4-pro-0813` | low / medium / high |
+| AlphaX Pro | Regolo | `gemma4-31b` | low / medium / high |
+| AlphaX Max | Google AI Studio | `gemini-3.6-flash` | minimal / low / medium / high |
 
-اعتمدت أن المقصود بـ AlphaX Max هو نموذج Gemma 4 31B IT، أي النموذج الآخر من عائلة Gemma 4. تستطيع تغيير المعرّف لاحقاً من صفحة Models & Prompts.
+## تجهيز مفاتيح API
 
-المعرّفات ومستويات التفكير متوافقة مع توثيق Google الحالي: Gemini 3.6 Flash يدعم `minimal/low/medium/high`، وGemma 4 26B و31B يدعمان `minimal/high`. راجع:
-- https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash
-- https://ai.google.dev/gemma/docs/core/gemma_on_gemini_api
+المفاتيح مستقلة لكل عميل ولكل نموذج، وتُحفظ مشفرة في قاعدة AlphaX.
 
-## إضافة نموذج جديد بنفسك
+1. Y5Z Coder Pro: أضف مفتاح APInex من حساب APInex إلى Customers → المستخدم → Y5Z Coder Pro.
+2. AlphaX Pro: أضف مفتاح Regolo من [لوحة مفاتيح Regolo](https://dashboard.regolo.ai/api-keys) إلى Customers → المستخدم → AlphaX Pro.
+3. AlphaX Max: أضف مفتاح Google AI Studio من [Google AI Studio](https://aistudio.google.com/apikey) إلى Customers → المستخدم → AlphaX Max.
+4. لا تضع مفاتيح العملاء في Render Environment أو GitHub، ولا ترسلها في المحادثة.
 
-من لوحة الأدمن افتح **Models & Prompts → Add a Model** ثم أدخل:
+ترقية V11 تنقل AlphaX Max من OpenRouter إلى Google AI Studio، وترقية V12 تضيف مفتاح التفكير الحقيقي إلى Y5Z فقط. مفاتيح OpenRouter النشطة تُعطّل ولا تُحذف. مفاتيح Google AI Studio القديمة التي عطّلتها ترقية V9 تُعاد إلى التفعيل تلقائياً إن كانت ما زالت محفوظة. افحصها من لوحة العميل، واستبدل أي مفتاح قديم لا يعمل.
 
-1. الاسم الوهمي الذي سيظهر للمشترك، مثل `AlphaX Research`.
-2. Public Model ID الذي سيستخدمه المشترك في OpenCode، مثل `alphax-research`.
-3. Google Model ID الرسمي كما يظهر في Google AI Studio/توثيق Gemini API.
-4. System Prompt خاص بهذا النموذج — الحقل إلزامي ولا يمكن إنشاء نموذج دون تعليماته.
-5. مستويات التفكير المدعومة وJSON الخاص بالـvariants والـdefaults، ثم قدرات الصور والأدوات والبث والوصف العام.
+## مستويات التفكير
 
-بعد الحفظ، افتح حساب كل مشترك وأضف له مفتاح Google AI Studio واحداً أو عدة مفاتيح لهذا النموذج، ثم امنحه صلاحية النموذج. لن يظهر للمشترك اسم Google أو المعرّف الداخلي أو المفتاح أو System Prompt؛ سيظهر الاسم الوهمي فقط. جميع النماذج الجديدة تستخدم Google AI Studio حصراً.
+- Y5Z Coder Pro: مفتاح مستقل ON/OFF، وعند ON تتاح `low`, `medium`, `high`. عند OFF يرسل الخادم `thinking.type=disabled` ولا يخفض المستوى إلى Low.
+- AlphaX Pro: `low`, `medium`, `high` عبر `reasoning_effort`.
+- AlphaX Max: `minimal`, `low`, `medium`, `high`، ويرسل AlphaX قيمة `thinking_level` إلى Gemini 3.6 Flash عبر Google AI Studio.
+- لا يوجد fallback إلى نموذج أو مسار مدفوع.
 
-## مفاتيح API والتوجيه
+## المجانية والحدود
 
-- يمكنك إضافة عدة مفاتيح Google لكل مستخدم ولكل نموذج.
-- التبديل التلقائي يكون بين مفاتيح ذلك المستخدم والنموذج فقط.
-- لا يوجد Pool مشترك أو استعارة مفتاح من مستخدم آخر.
-- لكل نموذج System Prompt منفصل يحقنه الخادم في كل طلب.
-- يستطيع المشترك إنشاء عدة مفاتيح AlphaX API مستقلة، وإلغاء كل مفتاح منفرداً.
-- OpenCode يستخدم مفتاح AlphaX وعنوان الخدمة وPublic Model IDs فقط.
+- APInex يقدّم مسار DeepSeek V4 Pro المجاني وفق حدود الحساب والمزوّد؛ تأكد من السعر الحالي في لوحة APInex قبل الاستخدام.
+- Regolo يضم Gemma 4 31B ضمن فترة تجربة محدودة، وليس مجانياً دائماً.
+- Google AI Studio يخضع لحصص Gemini API وحدود الحساب؛ لا تفترض أن كل الاستخدام مجاني بلا حدود.
 
-## ترقية الإصدار
+## النشر والاختبار
 
-- الإصدار: `1.5.0`
-- المشروع: `/home/AlphaX/alpha_deploy/AlphaAPI`
-- البيئة: `/home/AlphaX/.virtualenvs/alphax-venv`
-- الموقع: `AlphaX.pythonanywhere.com`
+- ارفع ملفات الإصدار `1.5.10` إلى فرع `main`.
+- Render: Docker، واترك Build Command وStart Command فارغين.
+- Health Check: `/health/ready`؛ يجب أن يعرض الإصدار `1.5.10`.
+- لا تغيّر `DATABASE_URL` أو `SECRET_KEY` أو `FERNET_KEY`.
+- بعد النشر، تحقق من مفاتيح Google الخاصة بـ AlphaX Max، ثم اختبر النماذج الثلاثة كلّاً على حدة ومستويات التفكير الخاصة به.
 
-الترحيل V8 يصحح ربط النماذج الافتراضية إلى:
-- Y5Z Coder Pro → Gemma 4 26B A4B IT.
-- AlphaX Pro → Gemini 3.6 Flash.
-- AlphaX Max → Gemma 4 31B IT.
-
-يحافظ الترحيل على System Prompts ومفاتيح Google الحالية والمنح والاشتراكات وأوامر الدفع ومفاتيح AlphaX. لا يغير أسماء النماذج العامة.
-
-## ربط Supabase من Bash دون تحرير `.env` يدوياً
-
-بعد نجاح تشغيل الإصدار على SQLite، وقبل تغيير أي إعداد، أنشئ نسخة نهائية للقاعدة وملف `.env`:
-
-```bash
-cd /home/AlphaX/alpha_deploy/AlphaAPI
-source /home/AlphaX/.virtualenvs/alphax-venv/bin/activate
-python scripts/backup_sqlite_before_supabase.py
-```
-
-بعدها شغّل أداة إدخال الرابط:
-
-```bash
-python scripts/configure_supabase.py
-```
-
-ستطلب منك لصق PostgreSQL connection string في إدخال مخفي. انسخه من Supabase → Connect، ويفضل **Session Pooler / port 5432**. الأداة:
-
-- تتحقق من صيغة رابط Supabase وتفرض SSL.
-- تختبر الاتصال فعلياً.
-- تتأكد أن public schema فارغ قبل النقل.
-- تنشئ نسخة احتياطية من `.env` وتحدّث `DATABASE_URL` فقط بعد نجاح الفحص.
-- لا تطبع كلمة المرور ولا تعدّل `.env` إذا فشل الاتصال.
-
-**تنبيه استضافة:** الوصول إلى PostgreSQL خارجي من PythonAnywhere يتطلب حساباً مدفوعاً. الحساب المجاني يقيّد اتصالات الإنترنت الخارجة، لذلك قد يفشل اختبار الاتصال حتى لو كان رابط Supabase صحيحاً. راجع https://help.pythonanywhere.com/pages/Postgres/ و https://help.pythonanywhere.com/pages/403ForbiddenError/ .
-
-بعد نجاح الأداة شغّل معاينة النقل أولاً:
-
-```bash
-python scripts/migrate_sqlite_to_supabase.py --source /home/AlphaX/alpha_deploy/AlphaAPI/alpha.db
-```
-
-راجع أعداد الصفوف، ثم نفّذ النقل صراحةً:
-
-```bash
-python scripts/migrate_sqlite_to_supabase.py --source /home/AlphaX/alpha_deploy/AlphaAPI/alpha.db --apply
-```
-
-لا تستخدم `--apply` إلا بعد التأكد أن قاعدة Supabase الجديدة هي القاعدة المقصودة وفارغة. الأداة ترفض أي public schema غير فارغ. لا تحذف SQLite بعد النقل.
-
-## الحفاظ على الأسرار
-
-- لا تغيّر `SECRET_KEY` الحالي.
-- لا تغيّر `FERNET_KEY` الحالي، فهو ضروري لفك مفاتيح Google المشفرة.
-- لا تضع مفاتيح Google في `.env`؛ تظل مرتبطة بكل مستخدم/نموذج ومشفرة في قاعدة البيانات.
-- لا تضع رابط Supabase أو كلمة المرور في Git أو في المحادثة.
-- المفتاح الذي ظهر سابقاً في المحادثة يجب إلغاؤه وعدم إعادة استخدامه.
-
-## الفحوص
-
-شغّل:
+شغّل الاختبارات محلياً:
 
 ```bash
 python -m compileall -q app tests scripts
-pytest -q
-curl -sS -i https://AlphaX.pythonanywhere.com/health/ready
+python -m pytest -q
 ```
-
-الاختبارات المحلية تستخدم استجابات مزود وهمية؛ نجاحها لا يثبت صلاحية مفتاح Google الفعلي. نفّذ طلباً حقيقياً صغيراً على حساب تجريبي قبل تفعيل الخدمة للعملاء.

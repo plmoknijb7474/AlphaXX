@@ -51,7 +51,7 @@ def _deep_merge(left: dict, right: dict) -> dict:
     return result
 
 
-def _openai_payload(model: ModelConfig, route, request_data: dict, messages: list[dict], stream: bool = False) -> dict:
+def _openai_payload(model: ModelConfig, route, request_data: dict, messages: list[dict], stream: bool = False, provider_name: str = "") -> dict:
     defaults = dict(model.request_defaults or {})
     route_defaults = dict(route.reasoning_config or {})
     request_fields = {
@@ -63,6 +63,100 @@ def _openai_payload(model: ModelConfig, route, request_data: dict, messages: lis
     payload["model"] = route.upstream_model_id
     payload["messages"] = messages
     payload["stream"] = bool(stream)
+
+    # OpenRouter exposes a unified reasoning object. AlphaX keeps the same
+    # customer-facing two-state Gemma control, then translates it here:
+    # minimal = thinking disabled; high = high reasoning effort.
+    if provider_name.strip().lower() == "openrouter":
+        for key in ("thinking_level", "reasoning_effort", "reasoning", "thinking", "alpha_reasoning"):
+            payload.pop(key, None)
+        if model.supports_reasoning and model.reasoning_mode == "levels":
+            options = model.reasoning_options or {}
+            allowed = options.get("effort") if isinstance(options, dict) else None
+            allowed = [str(x).strip().lower() for x in allowed] if isinstance(allowed, list) else ["minimal", "high"]
+            defaults_for_reasoning = model.request_defaults or {}
+            default_effort = (defaults_for_reasoning.get(model.reasoning_parameter)
+                              or defaults_for_reasoning.get("thinking_level")
+                              or defaults_for_reasoning.get("reasoning_effort")
+                              or ("high" if "high" in allowed else allowed[-1]))
+            requested = (request_data.get(model.reasoning_parameter)
+                         or request_data.get("thinking_level")
+                         or request_data.get("reasoning_effort")
+                         or default_effort)
+            if request_data.get("alpha_reasoning") is False:
+                requested = "minimal" if "minimal" in allowed else default_effort
+            effort = str(requested).strip().lower()
+            if effort not in allowed:
+                effort = str(default_effort).strip().lower()
+            if effort not in allowed:
+                effort = allowed[-1] if allowed else "high"
+            if effort == "minimal":
+                # OpenRouter accepts "none" as the explicit reasoning-off level.
+                # This preserves AlphaX's existing Gemma minimal = thinking off behavior.
+                payload["reasoning"] = {"effort": "none"}
+            else:
+                payload["reasoning"] = {"effort": effort}
+    elif provider_name.strip().lower() in {"apinex", "regolo"}:
+        # APInex and Regolo expose the OpenAI-compatible `reasoning_effort`
+        # field directly (unlike OpenRouter's {reasoning: {effort: ...}} shape).
+        # APInex DeepSeek additionally supports the native `thinking.type`
+        # switch; other routes remain levels-only unless configured otherwise.
+        for key in ("thinking_level", "reasoning_effort", "reasoning", "thinking", "alpha_reasoning"):
+            payload.pop(key, None)
+        if model.supports_reasoning and model.reasoning_mode == "levels":
+            options = model.reasoning_options or {}
+            allowed = options.get("effort") if isinstance(options, dict) else None
+            allowed = [str(x).strip().lower() for x in allowed if str(x).strip()] if isinstance(allowed, list) else []
+            if allowed:
+                defaults_for_reasoning = model.request_defaults or {}
+                parameter = str(model.reasoning_parameter or "reasoning_effort").strip()
+                default_effort = (defaults_for_reasoning.get(parameter)
+                                  or defaults_for_reasoning.get("reasoning_effort")
+                                  or defaults_for_reasoning.get("thinking_level")
+                                  or allowed[-1])
+                requested = (request_data.get(parameter)
+                             or request_data.get("reasoning_effort")
+                             or request_data.get("thinking_level"))
+                nested_reasoning = request_data.get("reasoning")
+                if not requested and isinstance(nested_reasoning, dict):
+                    requested = nested_reasoning.get("effort")
+
+                # DeepSeek V4 Pro on APInex exposes a separate thinking-mode
+                # switch. `none`/OFF must disable reasoning, not downgrade it
+                # to the least-intensive enabled level.
+                supports_toggle = provider_name.strip().lower() == "apinex" and options.get("toggle") is True
+                thinking_input = request_data.get("thinking")
+                thinking_type = (thinking_input.get("type")
+                                 if isinstance(thinking_input, dict) else None)
+                if supports_toggle:
+                    effort_requests_off = str(requested or "").strip().lower() in {"none", "off", "disabled"}
+                    disabled = (
+                        thinking_type == "disabled"
+                        or (thinking_type != "enabled" and request_data.get("alpha_reasoning") is False)
+                        or (thinking_type != "enabled" and effort_requests_off)
+                    )
+                    if disabled:
+                        payload["thinking"] = {"type": "disabled"}
+                        payload.pop(parameter, None)
+                        payload.pop("reasoning_effort", None)
+                    else:
+                        effort = str(requested or default_effort).strip().lower()
+                        if effort not in allowed:
+                            effort = str(default_effort).strip().lower()
+                        if effort not in allowed:
+                            effort = allowed[-1]
+                        payload["thinking"] = {"type": "enabled"}
+                        payload[parameter] = effort
+                else:
+                    # Regolo currently supports levels only, not an OFF switch.
+                    if request_data.get("alpha_reasoning") is False:
+                        requested = allowed[0]
+                    effort = str(requested or default_effort).strip().lower()
+                    if effort not in allowed:
+                        effort = str(default_effort).strip().lower()
+                    if effort not in allowed:
+                        effort = allowed[-1]
+                    payload[parameter] = effort
 
     return payload
 
@@ -273,7 +367,7 @@ def call_route(route, provider: Provider, credential, model: ModelConfig, reques
             url = f"{provider.base_url.rstrip('/')}/models/{route.upstream_model_id}:generateContent"
             response = httpx.post(url, params={"key": secret}, json=body, timeout=timeout)
         else:
-            payload = _openai_payload(model, route, request_data, messages, stream=False)
+            payload = _openai_payload(model, route, request_data, messages, stream=False, provider_name=getattr(provider, "name", ""))
             url = f"{provider.base_url.rstrip('/')}/chat/completions"
             response = httpx.post(url, headers={"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}, json=payload, timeout=timeout)
     except httpx.TimeoutException as exc:
@@ -327,7 +421,7 @@ def stream_route(route, provider: Provider, credential, model: ModelConfig, requ
                 url = f"{provider.base_url.rstrip('/')}/models/{route.upstream_model_id}:streamGenerateContent"
                 context = client.stream("POST", url, params={"key": secret, "alt": "sse"}, json=body)
             else:
-                payload = _openai_payload(model, route, request_data, messages, stream=True)
+                payload = _openai_payload(model, route, request_data, messages, stream=True, provider_name=getattr(provider, "name", ""))
                 url = f"{provider.base_url.rstrip('/')}/chat/completions"
                 context = client.stream("POST", url, headers={"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}, json=payload)
             with context as response:

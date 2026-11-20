@@ -154,3 +154,55 @@ def test_opencode_config_exposes_gemma4_two_state_thinking_only(monkeypatch):
     assert "google ai studio" not in text
     assert "private gemma prompt" not in text
     db.close(); engine.dispose()
+
+
+def test_apinex_and_regolo_opencode_config_publish_documented_reasoning_efforts(monkeypatch):
+    db, engine, user = _fixture_db()
+    monkeypatch.setattr(settings, "fernet_key", Fernet.generate_key().decode())
+    y5z = db.scalar(select(ModelConfig).where(ModelConfig.public_id == "y5z-coder-pro"))
+    apinex = Provider(name="APInex", base_url="https://api.apinex.bond/v1", protocol="openai_compatible", active=True)
+    regolo = Provider(name="Regolo", base_url="https://api.regolo.ai/v1", protocol="openai_compatible", active=True)
+    db.add_all([apinex, regolo]); db.flush()
+    y5z.provider_id = apinex.id
+    y5z.upstream_model_id = "free/deepseek-v4-pro-0813"
+    y5z.reasoning_parameter = "reasoning_effort"
+    y5z.reasoning_options = {"supported": True, "toggle": True, "effort": ["low", "medium", "high"]}
+    y5z.reasoning_variants = [
+        {"id": level, "body": {"reasoning_effort": level}}
+        for level in ("low", "medium", "high")
+    ]
+    pro = ModelConfig(
+        public_id="alphax-pro", public_name="AlphaX Pro", provider_id=regolo.id,
+        upstream_model_id="gemma4-31b", active=True, system_prompt="private Regolo system prompt",
+        supports_tools=True, supports_streaming=True, supports_vision=True,
+        supports_reasoning=True, reasoning_mode="levels", reasoning_parameter="reasoning_effort",
+        reasoning_options={"supported": True, "effort": ["low", "medium", "high"]},
+        reasoning_variants=[
+            {"id": level, "body": {"reasoning_effort": level}}
+            for level in ("low", "medium", "high")
+        ],
+    )
+    db.add(pro); db.flush()
+    db.add_all([
+        UserModelGrant(user_id=user.id, model_id=pro.id, active=True),
+        UserModelCredential(user_id=user.id, model_id=pro.id, secret_encrypted="encrypted-regolo", active=True),
+    ])
+    db.commit()
+    generate_customer_api_key(_request(user.id), csrf="test-csrf", key_name="Reasoning test", db=db)
+    request = _request(user.id)
+    request.scope["path"] = "/account/opencode-config"
+    request.scope["raw_path"] = b"/account/opencode-config"
+    config = json.loads(opencode_config(request, db=db).body)
+    entries = config["providers"]["alphax"]["models"]
+    assert set(entries) == {"y5z-coder-pro", "alphax-pro"}
+    for public_id in ("y5z-coder-pro", "alphax-pro"):
+        entry = entries[public_id]
+        assert entry["capabilities"]["reasoning"]["effort"] == ["low", "medium", "high"]
+        assert bool(entry["capabilities"]["reasoning"].get("toggle")) is (public_id == "y5z-coder-pro")
+        assert [variant["id"] for variant in entry["variants"]] == ["low", "medium", "high"]
+        assert all(variant["body"]["reasoning_effort"] == variant["id"] for variant in entry["variants"])
+    serialized = json.dumps(config)
+    assert "free/deepseek-v4-pro-0813" not in serialized
+    assert "gemma4-31b" not in serialized
+    assert "private Regolo system prompt" not in serialized
+    db.close(); engine.dispose()

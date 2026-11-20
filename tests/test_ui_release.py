@@ -3,17 +3,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_customer_templates_use_v152_assets_to_avoid_stale_cache():
+def test_customer_templates_use_current_assets_to_avoid_stale_cache():
     for name in ("account.html", "customer_auth.html", "key_reveal.html"):
         source = (ROOT / "app" / "templates" / name).read_text()
-        assert "v=1.5.5" in source
+        assert "v=1.5.10" in source
         assert "v=1.4.0" not in source
 
 
-def test_admin_layout_uses_compact_navigation_and_v152_assets():
+def test_admin_layout_uses_compact_navigation_and_current_assets():
     source = (ROOT / "app" / "templates" / "layout.html").read_text()
-    assert "/static/style.css?v=1.5.5" in source
-    assert "/static/app.js?v=1.5.5" in source
+    assert "/static/style.css?v=1.5.10" in source
+    assert "/static/app.js?v=1.5.10" in source
     assert "Subscriptions &amp; Orders" in source
     assert "Models &amp; Prompts" in source
     assert "System settings" in source
@@ -28,9 +28,9 @@ def test_supabase_migration_script_is_included_and_preview_first():
     assert "Target database is not empty" in source
 
 
-def test_application_version_is_v154():
+def test_application_version_is_v1510():
     source = (ROOT / "app" / "main.py").read_text()
-    assert 'version="1.5.5"' in source
+    assert 'version="1.5.10"' in source
 
 
 
@@ -50,10 +50,13 @@ def test_admin_css_contains_integrated_v152_admin_workspace_styles():
         assert selector in source
 
 
-def test_admin_provider_page_is_google_ai_studio_only():
+def test_admin_provider_page_lists_all_fixed_connectors():
     source = (ROOT / "app" / "templates" / "providers.html").read_text().lower()
     assert "google ai studio" in source
-    assert "add provider endpoint" not in source
+    assert "openrouter" in source
+    assert "apinex" in source
+    assert "regolo" in source
+    assert "each customer and model" in source
     assert "xkiro" not in source and "odirouter" not in source
 
 
@@ -65,13 +68,13 @@ def test_supabase_connection_helper_is_present_and_updates_env_only_after_valida
     assert "Target database is not empty" in (ROOT / "scripts" / "migrate_sqlite_to_supabase.py").read_text()
 
 
-def test_admin_add_model_form_exposes_individual_system_prompt_and_google_model_id():
+def test_admin_add_model_form_exposes_individual_prompt_and_provider_model_id():
     source = (ROOT / "app" / "templates" / "models.html").read_text()
     assert 'action="/admin/models"' in source
     assert 'name="upstream_model_id"' in source
     assert 'name="system_prompt"' in source
     assert 'required placeholder="Write the mandatory instructions for this model.' in source
-    assert "Google AI Studio" in source
+    assert "Google AI Studio" in source and "OpenRouter" in source and "APInex" in source and "Regolo" in source
 
 
 def test_supabase_uri_normalizer_forces_ssl_and_sqlalchemy_psycopg_driver():

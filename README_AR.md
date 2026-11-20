@@ -1,43 +1,56 @@
-# AlphaX v1.5.0
+# AlphaX v1.5.10
 
-AlphaX is a multi-customer, OpenAI-compatible gateway backed exclusively by Google's native Gemini API / Google AI Studio. Customers use fake public aliases; provider model IDs, provider credentials and System Prompts remain server-side.
+AlphaX is a multi-customer, OpenAI-compatible gateway. Public aliases stay stable while upstream provider IDs and customer-specific API credentials remain server-side and encrypted.
 
 ## Built-in public models
 
-| Public alias | Google model ID | Thinking |
-|---|---|---|
-| Y5Z Coder Pro | `gemma-4-26b-a4b-it` | minimal / high |
-| AlphaX Pro | `gemini-3.6-flash` | minimal / low / medium / high |
-| AlphaX Max | `gemma-4-31b-it` | minimal / high |
+| Public alias | Provider | Upstream model ID | Thinking levels | Free-access status |
+|---|---|---|---|---|
+| Y5Z Coder Pro | APInex | `free/deepseek-v4-pro-0813` | ON/OFF + low / medium / high | APInex free tier route; account limits apply |
+| AlphaX Pro | Regolo | `gemma4-31b` | low / medium / high | Regolo limited trial; not permanently free |
+| AlphaX Max | Google AI Studio | `gemini-3.6-flash` | minimal / low / medium / high | Google AI Studio quotas and account limits apply |
 
-The AlphaX Max mapping to Gemma 4 31B IT is the selected interpretation of the user's “other Max model” instruction. It can be changed in Admin → Models & Prompts.
+Endpoints: APInex `https://api.apinex.bond/v1`; Regolo `https://api.regolo.ai/v1`; Google AI Studio native Gemini API `https://generativelanguage.googleapis.com/v1beta`.
 
-## Dynamic model catalog
+## Reasoning and request mapping
 
-Admin can add any Google AI Studio model without a code change: public alias, exact Google model ID, a required independent System Prompt, reasoning levels/variants, request defaults, fallback model IDs, tools/streaming/vision support, description, skills and image. Each customer receives separate Google key credentials per model, with failover only among that customer's own active keys.
+- Y5Z Coder Pro exposes a separate ON/OFF switch. OFF sends DeepSeek's `thinking: {"type":"disabled"}`; ON sends `thinking: {"type":"enabled"}` and the selected `reasoning_effort` (`low`, `medium`, `high`).
+- AlphaX Pro accepts `low`, `medium`, `high`, mapped to Regolo's `reasoning_effort` field.
+- AlphaX Max accepts `minimal`, `low`, `medium`, `high`, mapped to Gemini 3.6 Flash `generationConfig.thinkingConfig.thinkingLevel`.
+- Thinking levels are model-specific; the server validates each value against the model's configured list.
+- Gemini 3.6 Flash uses the native Google AI Studio API adapter. System instructions, supported tool calls, streaming and vision conversion remain in the Google adapter.
 
-## Supabase
+## Customer-specific provider credentials
 
-Use `python scripts/configure_supabase.py` from Bash. It prompts for the Supabase PostgreSQL URI with hidden input, tests SSL connectivity, rejects a non-empty `public` schema, backs up `.env`, and writes `DATABASE_URL` only after successful validation. Then preview and apply the SQLite migration with `scripts/migrate_sqlite_to_supabase.py`. Keep the original SQLite database and current `SECRET_KEY` / `FERNET_KEY`. PythonAnywhere external PostgreSQL access requires a paid account.
+Provider credentials are stored per customer and per public model, encrypted with `FERNET_KEY`.
 
-## Run tests
+- Y5Z Coder Pro: APInex key.
+- AlphaX Pro: Regolo key from `https://dashboard.regolo.ai/api-keys`.
+- AlphaX Max: Google AI Studio key from `https://aistudio.google.com/apikey`.
+
+Do not add shared provider keys to Render Environment. Admin adds each key under Customers → customer → matching model.
+
+## v1.5.10 — DeepSeek reasoning toggle
+
+The V12 migration enables the OpenCode `capabilities.reasoning.toggle` flag for Y5Z Coder Pro only. OpenCode exposes a separate `none`/OFF option in addition to low/medium/high. The gateway maps OFF to the explicit DeepSeek `thinking.type=disabled` field; it never substitutes Low. AlphaX Pro and AlphaX Max remain unchanged.
+
+## v1.5.9 migration
+
+The V11 startup migration moves only `alphax-max` from OpenRouter to Google AI Studio / `gemini-3.6-flash`, clears upstream fallback routes, and configures the four documented thinking levels. Existing active OpenRouter keys are disabled but retained. Previously disabled Google keys carrying the V9 `PROVIDER_CHANGED` marker are re-enabled for reuse. No model aliases, grants, system prompts, subscriptions, payment data, usage data, or AlphaX gateway keys are deleted or changed. Y5Z remains on APInex and AlphaX Pro remains on Regolo.
+
+## API key rotation and routing
+
+The existing per-customer key rotation remains active and scoped to one customer and one model. The V10/V11 routes do not configure alternate upstream model fallbacks; provider failures are not silently redirected to a paid model. Provider-side quotas and pricing still apply.
+
+## Render and database
+
+- Runtime: Docker. Build and Start Command fields remain blank.
+- Health Check: `/health/ready` (version `1.5.10`).
+- Preserve `DATABASE_URL`, `SECRET_KEY`, and `FERNET_KEY`; changing `FERNET_KEY` can make stored provider credentials unreadable.
+
+## Tests
 
 ```bash
 python -m compileall -q app tests scripts
-pytest -q
+python -m pytest -q
 ```
-
-
-## الإصدار 1.5.4
-
-راجع `PATCH_NOTES_V1.5.4_AR.md` لإصلاحات توافق مخطط قاعدة البيانات وأخطاء إجراءات لوحة الأدمن. الإصلاحات الإضافية تُطبّق عند بدء التطبيق بعد النشر.
-
-
-## الإصدار 1.5.6
-
-يعالج رفض أسماء المستخدمين الجديدة عند وجود تسلسل PostgreSQL متأخر، ويميّز خطأ تكرار اسم المستخدم الحقيقي عن بقية أخطاء قاعدة البيانات. راجع `PATCH_NOTES_V1.5.6_AR.md`.
-
-
-## استخدام Render PostgreSQL
-
-لربط الخدمة بقاعدة Render الداخلية، اتبع الدليل `RENDER_POSTGRES_SETUP_AR.md`. انتبه إلى أن تغيير `DATABASE_URL` لا ينقل بيانات Supabase تلقائياً.

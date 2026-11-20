@@ -1,6 +1,6 @@
 {% extends 'layout.html' %}{% block content %}
-<header class="page-head"><div><span class="eyebrow">MODEL ROUTER / SYSTEM INSTRUCTIONS</span><h1>Models &amp; System Prompts</h1><p class="muted">All public models use Google AI Studio. Each has its own upstream model ID, multiple customer-specific Google API keys, model-specific thinking controls, and a mandatory System Prompt. Every API request is enriched with that model's prompt on the server.</p></div></header>
-<section class="panel"><h2>Model Catalog</h2><p class="muted">Customers see only the public aliases. Google model IDs, provider settings and System Prompts stay private to the admin.</p>
+<header class="page-head"><div><span class="eyebrow">MODEL ROUTER / SYSTEM INSTRUCTIONS</span><h1>Models &amp; System Prompts</h1><p class="muted">Y5Z Coder Pro uses APInex DeepSeek V4 Pro; AlphaX Pro uses Regolo Gemma 4 31B; AlphaX Max uses Gemini 3.6 Flash on Google AI Studio. Each model has its own upstream model ID, customer-specific provider keys, model-specific thinking controls, and a mandatory System Prompt. Every API request is enriched with that model's prompt on the server.</p></div></header>
+<section class="panel"><h2>Model Catalog</h2><p class="muted">Customers see only the public aliases. Upstream model IDs, provider settings and System Prompts stay private to the admin.</p>
 <div class="model-admin-grid">{% for m in models %}<details class="model-admin-card" {% if loop.first %}open{% endif %}>
   <summary><img src="{{ m.public_image or '/static/images/models/y5z-coder-pro.webp' }}" alt="" loading="lazy"><span><strong>{{ m.public_name }}</strong><small>{{ m.public_id }} · {{ 'Active' if m.active else 'Disabled' }} · Prompt {{ 'set' if m.system_prompt|trim else 'missing' }}</small></span><span class="summary-arrow">⌄</span></summary>
   <form method="post" action="/admin/models/{{ m.id }}/update" class="form-grid model-admin-form">
@@ -28,16 +28,16 @@
     <div class="form-actions"><button class="btn btn-primary">Save Model &amp; Prompt</button></div>
   </form>
 </details>{% endfor %}</div></section>
-<section class="panel"><h2>Add a Model</h2><p class="muted">Add any model available to your Google AI Studio project. Give it a customer-facing alias, the exact Google model ID, its own mandatory System Prompt, and the thinking controls supported by that model.</p>
+<section class="panel"><h2>Add a Model</h2><p class="muted">Add a model from Google AI Studio, OpenRouter, APInex, or Regolo. Give it a customer-facing alias, the exact upstream model ID, its own mandatory System Prompt, and the thinking controls supported by that model.</p>
 <form method="post" action="/admin/models" class="form-grid"><input type="hidden" name="csrf" value="{{ csrf }}">
 <label>Customer-visible name<input name="public_name" placeholder="AlphaX Research" required maxlength="120"></label>
 <label>Customer-visible model ID<input name="public_id" placeholder="alphax-research" required pattern="[a-z0-9][a-z0-9._-]*" maxlength="120"><small class="muted">Use a lowercase alias. This is what customers type in OpenCode.</small></label>
-<label>Provider<select name="provider_id" required>{% for p in providers %}<option value="{{ p.id }}">Google AI Studio</option>{% endfor %}</select></label>
-<label>Google model ID<input name="upstream_model_id" placeholder="exact-model-id-from-Google" required maxlength="200"><small class="muted">Internal ID. Never shown to customers.</small></label>
-<label class="wide">Fallback Google model IDs (optional, one per line)<textarea name="fallback_upstream_ids_text" rows="2" placeholder="another-model-id"></textarea><small class="muted">Fallback model IDs are tried only on retryable capacity/availability failures, using the same customer's Google keys.</small></label>
+<label>Provider<select name="provider_id" required>{% for p in providers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></label>
+<label>Upstream model ID<input name="upstream_model_id" placeholder="free/deepseek-v4-pro-0813, gemma4-31b, or exact provider model ID" required maxlength="200"><small class="muted">Use the exact model slug required by the selected provider. Internal ID; never shown to customers.</small></label>
+<label class="wide">Fallback upstream model IDs (optional, one per line)<textarea name="fallback_upstream_ids_text" rows="2" placeholder="another-model-id"></textarea><small class="muted">Fallback model IDs are tried only on retryable capacity/availability failures, using the same customer's keys for the selected provider.</small></label>
 <label>Thinking mode<select name="reasoning_mode"><option value="none">Not supported</option><option value="toggle">On / Off</option><option value="levels" selected>Thinking levels</option></select></label>
-<label>Google thinking parameter<input name="reasoning_parameter" value="thinking_level" placeholder="thinking_level"></label>
-<label class="wide">Allowed thinking levels JSON<textarea name="reasoning_options_json" rows="2">{"supported":true,"effort":["minimal","low","medium","high"]}</textarea><small class="muted">Set only levels supported by the selected model. Gemma 4 supports minimal/high; Gemini 3.6 Flash supports minimal/low/medium/high.</small></label>
+<label>Thinking input parameter<input name="reasoning_parameter" value="thinking_level" placeholder="thinking_level"></label>
+<label class="wide">Allowed thinking levels JSON<textarea name="reasoning_options_json" rows="2">{"supported":true,"effort":["minimal","low","medium","high"]}</textarea><small class="muted">Set only levels supported by the selected model. Choose only the thinking levels documented by the selected provider and model. Built-in APInex DeepSeek V4 Pro and Regolo Gemma 4 31B use low/medium/high; AlphaX Max on Google AI Studio supports minimal/low/medium/high.</small></label>
 <label class="wide">Default request body JSON<textarea name="request_defaults_json" rows="2">{"thinking_level":"medium"}</textarea></label>
 <label class="wide">Reasoning variants JSON<textarea name="variants_json" rows="3">[{"id":"minimal","body":{"thinking_level":"minimal"}},{"id":"low","body":{"thinking_level":"low"}},{"id":"medium","body":{"thinking_level":"medium"}},{"id":"high","body":{"thinking_level":"high"}}]</textarea></label>
 <label class="wide">System Prompt — required and exclusive to this model<textarea name="system_prompt" rows="9" required placeholder="Write the mandatory instructions for this model. AlphaX injects them on every API request."></textarea></label>
@@ -51,5 +51,5 @@ Document analysis"></textarea></label>
 <label class="check"><input type="checkbox" name="supports_streaming" checked> Streaming</label>
 <label class="check"><input type="checkbox" name="supports_vision"> Image input</label>
 <div class="form-actions"><button class="btn btn-primary">Add model and save its System Prompt</button></div></form>
-<p class="muted">After adding the model, open each customer account and add one or more Google AI Studio keys for this model. Then grant the model to that customer. Customers see only the public name and public model ID.</p></section>
+<p class="muted">After adding the model, open each customer account and add one or more keys for the selected provider. Then grant the model to that customer. Customers see only the public name and public model ID.</p></section>
 {% endblock %}

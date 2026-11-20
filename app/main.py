@@ -70,7 +70,7 @@ def _get_or_create_model(db, canonical_id: str, legacy_ids: list[str], public_na
 
 
 def seed_catalog(db):
-    """Seed the three customer-facing aliases with Google AI Studio only."""
+    """Seed initial model records; one-time provider migrations apply built-in routes."""
     google = _provider(db, "Google AI Studio", "https://generativelanguage.googleapis.com/v1beta", "google_genai")
     google.base_url = "https://generativelanguage.googleapis.com/v1beta"
     google.protocol = "google_genai"
@@ -360,6 +360,275 @@ def apply_model_assignment_v8_migration(db):
 
 
 
+def apply_gemma_openrouter_v9_migration(db):
+    """Route only the two built-in Gemma aliases through OpenRouter.
+
+    AlphaX Pro stays on Google AI Studio. Previous Google credentials for Gemma
+    are disabled (never deleted) because they are not valid OpenRouter tokens.
+    Customer grants, subscriptions, prompts, and AlphaX gateway API keys remain.
+    """
+    openrouter = _provider(
+        db, "OpenRouter", "https://openrouter.ai/api/v1", "openai_compatible"
+    )
+    # This is a fixed, first-party connector: do not let stale provider settings
+    # redirect customer credentials to an arbitrary host.
+    openrouter.base_url = "https://openrouter.ai/api/v1"
+    openrouter.protocol = "openai_compatible"
+    openrouter.active = True
+    db.flush()
+
+    google = db.scalar(select(Provider).where(Provider.name == "Google AI Studio"))
+    if google is None:
+        google = _provider(
+            db, "Google AI Studio",
+            "https://generativelanguage.googleapis.com/v1beta", "google_genai",
+        )
+        google.base_url = "https://generativelanguage.googleapis.com/v1beta"
+        google.protocol = "google_genai"
+        google.active = True
+
+    gemma_options = {
+        "supported": True,
+        "effort": ["minimal", "high"],
+        "description": "Gemma 4 via OpenRouter: minimal disables reasoning; high requests high reasoning effort.",
+    }
+    gemma_variants = [
+        {"id": "thinking-off", "body": {"thinking_level": "minimal"}},
+        {"id": "thinking-on", "body": {"thinking_level": "high"}},
+    ]
+    assignments = {
+        "y5z-coder-pro": "google/gemma-4-26b-a4b-it:free",
+        "alphax-max": "google/gemma-4-31b-it:free",
+    }
+    for public_id, upstream_id in assignments.items():
+        model = db.scalar(select(ModelConfig).where(ModelConfig.public_id == public_id))
+        if model is None:
+            continue
+        old_provider = db.get(Provider, model.provider_id)
+        already_openrouter = bool(old_provider and old_provider.name == "OpenRouter")
+        model.provider_id = openrouter.id
+        model.upstream_model_id = upstream_id
+        model.fallback_upstream_ids = []
+        model.supports_reasoning = True
+        model.reasoning_mode = "levels"
+        model.reasoning_parameter = "thinking_level"
+        model.reasoning_options = dict(gemma_options)
+        model.reasoning_variants = list(gemma_variants)
+        defaults = dict(model.request_defaults or {})
+        for stale_key in ("reasoning_effort", "reasoning", "alpha_reasoning"):
+            defaults.pop(stale_key, None)
+        defaults["thinking_level"] = "high"
+        model.request_defaults = defaults
+        model.supports_tools = True
+        model.supports_streaming = True
+        model.supports_vision = True
+
+        # Google AI Studio keys are not valid OpenRouter keys. Preserve the
+        # encrypted records for audit/rollback, but require a fresh OpenRouter key.
+        if not already_openrouter:
+            credentials = db.scalars(
+                select(UserModelCredential).where(UserModelCredential.model_id == model.id)
+            ).all()
+            for credential in credentials:
+                if credential.active:
+                    credential.active = False
+                    credential.last_failure_code = "PROVIDER_CHANGED"
+
+    db.flush()
+
+
+def apply_apinex_regolo_v10_migration(db):
+    """Move only Y5Z and AlphaX Pro to the requested OpenAI-compatible providers.
+
+    Y5Z uses APInex's documented zero-price DeepSeek V4 Pro route. AlphaX Pro
+    uses Regolo's Gemma 4 31B model. AlphaX Max remains on its existing OpenRouter
+    Gemma 4 31B free route. Incompatible customer keys are disabled, never deleted.
+    """
+    apinex = _provider(db, "APInex", "https://api.apinex.bond/v1", "openai_compatible")
+    apinex.base_url = "https://api.apinex.bond/v1"
+    apinex.protocol = "openai_compatible"
+    apinex.active = True
+
+    regolo = _provider(db, "Regolo", "https://api.regolo.ai/v1", "openai_compatible")
+    regolo.base_url = "https://api.regolo.ai/v1"
+    regolo.protocol = "openai_compatible"
+    regolo.active = True
+    db.flush()
+
+    provider_routes = {
+        "y5z-coder-pro": {
+            "provider": apinex,
+            "upstream": "free/deepseek-v4-pro-0813",
+            "effort": ["low", "medium", "high"],
+            "description": "DeepSeek V4 Pro on APInex zero-price free route. Reasoning effort supports low, medium, and high. No paid fallback is configured.",
+            "default": "high",
+            "vision": False,
+        },
+        "alphax-pro": {
+            "provider": regolo,
+            "upstream": "gemma4-31b",
+            "effort": ["low", "medium", "high"],
+            "description": "Gemma 4 31B hosted by Regolo. Uses reasoning_effort low/medium/high. Free access depends on Regolo's 30-day trial allowance; no paid fallback is configured.",
+            "default": "high",
+            "vision": True,
+        },
+    }
+
+    for public_id, spec in provider_routes.items():
+        model = db.scalar(select(ModelConfig).where(ModelConfig.public_id == public_id))
+        if model is None:
+            continue
+        old_provider = db.get(Provider, model.provider_id)
+        provider_changed = not old_provider or old_provider.name != spec["provider"].name
+
+        model.provider_id = spec["provider"].id
+        model.upstream_model_id = spec["upstream"]
+        # Explicitly disable all paid/implicit fallback routes for these two models.
+        model.fallback_upstream_ids = []
+        model.supports_reasoning = True
+        model.reasoning_mode = "levels"
+        model.reasoning_parameter = "reasoning_effort"
+        model.reasoning_options = {
+            "supported": True,
+            "effort": list(spec["effort"]),
+            "description": spec["description"],
+        }
+        model.reasoning_variants = [
+            {"id": level, "body": {"reasoning_effort": level}}
+            for level in spec["effort"]
+        ]
+        defaults = dict(model.request_defaults or {})
+        for stale_key in ("thinking_level", "reasoning", "alpha_reasoning"):
+            defaults.pop(stale_key, None)
+        defaults["reasoning_effort"] = spec["default"]
+        model.request_defaults = defaults
+        model.supports_tools = True
+        model.supports_streaming = True
+        model.supports_vision = bool(spec["vision"])
+
+        # Provider API keys are provider-specific. Preserve encrypted old keys for
+        # audit/rollback, but disable them until the administrator adds the new key.
+        if provider_changed:
+            credentials = db.scalars(
+                select(UserModelCredential).where(UserModelCredential.model_id == model.id)
+            ).all()
+            for credential in credentials:
+                if credential.active:
+                    credential.active = False
+                    credential.last_failure_code = "PROVIDER_CHANGED"
+
+    db.flush()
+
+
+def apply_alphax_max_gemini36_v11_migration(db):
+    """Move only AlphaX Max back to Gemini 3.6 Flash on Google AI Studio.
+
+    Y5Z remains on APInex DeepSeek V4 Pro and AlphaX Pro remains on Regolo
+    Gemma 4 31B. OpenRouter credentials currently active on AlphaX Max are
+    disabled (never deleted). Google AI Studio credentials previously disabled
+    by the v9 provider migration are restored for reuse when available.
+    """
+    google = _provider(
+        db, "Google AI Studio",
+        "https://generativelanguage.googleapis.com/v1beta", "google_genai",
+    )
+    google.base_url = "https://generativelanguage.googleapis.com/v1beta"
+    google.protocol = "google_genai"
+    google.active = True
+
+    model = db.scalar(select(ModelConfig).where(ModelConfig.public_id == "alphax-max"))
+    if model is None:
+        db.flush()
+        return
+
+    previous_provider = db.get(Provider, model.provider_id)
+    provider_changed = not previous_provider or previous_provider.name != "Google AI Studio"
+    if provider_changed:
+        credentials = db.scalars(
+            select(UserModelCredential).where(UserModelCredential.model_id == model.id)
+            .order_by(UserModelCredential.id)
+        ).all()
+        # Old Google keys were marked PROVIDER_CHANGED when v9 moved this model
+        # to OpenRouter. Restore those old Google keys, but disable current active
+        # OpenRouter keys. Never delete any encrypted credential record.
+        previously_disabled_google = [
+            credential for credential in credentials
+            if not credential.active and credential.last_failure_code == "PROVIDER_CHANGED"
+        ]
+        for credential in credentials:
+            if credential.active:
+                credential.active = False
+                credential.last_failure_code = "PROVIDER_CHANGED"
+        for credential in previously_disabled_google:
+            credential.active = True
+            credential.last_failure_code = ""
+
+    model.provider_id = google.id
+    model.upstream_model_id = "gemini-3.6-flash"
+    model.fallback_upstream_ids = []
+    model.supports_reasoning = True
+    model.reasoning_mode = "levels"
+    model.reasoning_parameter = "thinking_level"
+    model.reasoning_options = {
+        "supported": True,
+        "effort": ["minimal", "low", "medium", "high"],
+        "description": "Gemini 3.6 Flash on Google AI Studio supports minimal, low, medium, and high thinking levels.",
+    }
+    model.reasoning_variants = [
+        {"id": level, "body": {"thinking_level": level}}
+        for level in ("minimal", "low", "medium", "high")
+    ]
+    defaults = dict(model.request_defaults or {})
+    for stale_key in ("reasoning_effort", "reasoning", "alpha_reasoning"):
+        defaults.pop(stale_key, None)
+    defaults["thinking_level"] = "medium"
+    model.request_defaults = defaults
+    model.supports_tools = True
+    model.supports_streaming = True
+    model.supports_vision = True
+    db.flush()
+
+
+def apply_y5z_deepseek_reasoning_toggle_v12_migration(db):
+    """Expose DeepSeek V4 Pro's real reasoning ON/OFF toggle for Y5Z only.
+
+    Keep the existing APInex route, model, customer credentials, quotas,
+    subscriptions, grants, prompts, and the three selectable effort levels.
+    """
+    model = db.scalar(select(ModelConfig).where(ModelConfig.public_id == "y5z-coder-pro"))
+    if model is None:
+        db.flush()
+        return
+    provider = db.get(Provider, model.provider_id)
+    if not provider or provider.name.strip().lower() != "apinex":
+        # Do not apply APInex-specific controls to a model rerouted by an Admin.
+        db.flush()
+        return
+    if "deepseek" not in (model.upstream_model_id or "").lower():
+        db.flush()
+        return
+
+    model.supports_reasoning = True
+    model.reasoning_mode = "levels"
+    model.reasoning_parameter = "reasoning_effort"
+    options = dict(model.reasoning_options or {})
+    options["supported"] = True
+    options["effort"] = ["low", "medium", "high"]
+    options["toggle"] = True
+    options["description"] = (
+        "DeepSeek V4 Pro supports a separate thinking ON/OFF switch, "
+        "plus low, medium, and high reasoning effort when thinking is enabled."
+    )
+    model.reasoning_options = options
+
+    # Retain the three existing effort variants; OpenCode adds its built-in
+    # `none` variant from capabilities.reasoning.toggle.
+    defaults = dict(model.request_defaults or {})
+    defaults["reasoning_effort"] = defaults.get("reasoning_effort") or "high"
+    model.request_defaults = defaults
+    db.flush()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -440,13 +709,30 @@ async def lifespan(app: FastAPI):
         if db.get(SystemSetting, "model_assignment_v8") is None:
             apply_model_assignment_v8_migration(db)
             db.add(SystemSetting(key="model_assignment_v8", value="seeded"))
+        # V9 moves only the Gemma models to OpenRouter. Gemini remains on Google AI Studio.
+        if db.get(SystemSetting, "gemma_models_openrouter_v9") is None:
+            apply_gemma_openrouter_v9_migration(db)
+            db.add(SystemSetting(key="gemma_models_openrouter_v9", value="seeded"))
+        # V10 routes Y5Z to APInex DeepSeek V4 Pro and AlphaX Pro to Regolo Gemma 4 31B.
+        # V11 routes AlphaX Max to Gemini 3.6 Flash on Google AI Studio.
+        if db.get(SystemSetting, "apinex_regolo_model_routes_v10") is None:
+            apply_apinex_regolo_v10_migration(db)
+            db.add(SystemSetting(key="apinex_regolo_model_routes_v10", value="seeded"))
+        if db.get(SystemSetting, "alphax_max_gemini36_google_v11") is None:
+            apply_alphax_max_gemini36_v11_migration(db)
+            db.add(SystemSetting(key="alphax_max_gemini36_google_v11", value="seeded"))
+        # V12 adds a genuine DeepSeek reasoning OFF switch while preserving
+        # Y5Z's APInex provider, model route, and low/medium/high effort levels.
+        if db.get(SystemSetting, "y5z_deepseek_reasoning_toggle_v12") is None:
+            apply_y5z_deepseek_reasoning_toggle_v12_migration(db)
+            db.add(SystemSetting(key="y5z_deepseek_reasoning_toggle_v12", value="seeded"))
         db.commit()
     finally:
         db.close()
     yield
 
 
-app = FastAPI(title=settings.app_name, version="1.5.5", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="1.5.10", lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie="alpha_session", same_site="strict", https_only=settings.cookie_secure, max_age=60 * 60 * 8)
 APP_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
@@ -458,7 +744,7 @@ app.include_router(customer_router)
 @app.get("/health")
 def health():
     """Liveness check: confirms the ASGI worker is responding."""
-    return {"status": "ok", "service": "alpha-api", "phase": "alphax-google-ai-studio-router-v1.5.5"}
+    return {"status": "ok", "service": "alpha-api", "phase": "alphax-apinex-regolo-gemini-deepseek-toggle-v1.5.10"}
 
 
 @app.get("/health/ready")
@@ -471,9 +757,9 @@ def health_ready():
         # Do not leak database URLs, credentials, or connection details to the public endpoint.
         return JSONResponse(
             status_code=503,
-            content={"status": "not_ready", "service": "alpha-api", "version": "1.5.5"},
+            content={"status": "not_ready", "service": "alpha-api", "version": "1.5.10"},
         )
-    return {"status": "ready", "service": "alpha-api", "version": "1.5.5"}
+    return {"status": "ready", "service": "alpha-api", "version": "1.5.10"}
 
 
 @app.get("/", include_in_schema=False)

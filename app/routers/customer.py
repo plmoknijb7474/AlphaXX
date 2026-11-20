@@ -518,6 +518,9 @@ def opencode_config(request: Request, db: Session = Depends(get_db)):
         reasoning_options = dict(model.reasoning_options or {})
         if model.supports_reasoning:
             reasoning_capability = {"supported": True}
+            if reasoning_options.get("toggle") is True:
+                # OpenCode generates a dedicated `none` variant for this toggle.
+                reasoning_capability["toggle"] = True
             effort = reasoning_options.get("effort")
             if model.reasoning_mode == "levels" and isinstance(effort, list):
                 allowed = [str(item) for item in effort if str(item) in {"minimal", "low", "medium", "high"}]
