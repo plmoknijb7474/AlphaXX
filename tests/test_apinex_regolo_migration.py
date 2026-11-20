@@ -4,7 +4,11 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
-from app.main import apply_apinex_regolo_v10_migration, apply_y5z_deepseek_reasoning_toggle_v12_migration
+from app.main import (
+    apply_apinex_regolo_v10_migration,
+    apply_y5z_deepseek_reasoning_toggle_v12_migration,
+    apply_regolo_gemma_reasoning_toggle_v13_migration,
+)
 from app.models import ModelConfig, Provider, User, UserModelCredential, UserModelGrant
 from app.services.provider_client import _openai_payload
 
@@ -248,3 +252,100 @@ def test_apinex_http_request_for_off_mode_contains_only_explicit_thinking_disabl
     assert "reasoning_effort" not in captured["json"]
     assert captured["json"]["messages"][0]["content"] == "keep admin prompt"
     assert result["model"] == "y5z-coder-pro"
+
+
+
+def test_v13_makes_regolo_gemma_toggle_only_and_preserves_other_model_controls():
+    db, engine = _db()
+    apinex = Provider(name="APInex", base_url="https://api.apinex.bond/v1", protocol="openai_compatible", active=True)
+    regolo = Provider(name="Regolo", base_url="https://api.regolo.ai/v1", protocol="openai_compatible", active=True)
+    google = Provider(name="Google AI Studio", base_url="https://generativelanguage.googleapis.com/v1beta", protocol="google_genai", active=True)
+    db.add_all([apinex, regolo, google]); db.flush()
+
+    y5z = ModelConfig(
+        public_id="y5z-coder-pro", public_name="Y5Z Coder Pro", provider_id=apinex.id,
+        upstream_model_id="free/deepseek-v4-pro-0813", active=True, system_prompt="keep DeepSeek prompt",
+        supports_reasoning=True, reasoning_mode="levels", reasoning_parameter="reasoning_effort",
+        reasoning_options={"supported": True, "toggle": True, "effort": ["low", "medium", "high"]},
+        reasoning_variants=[{"id": level, "body": {"reasoning_effort": level}} for level in ("low", "medium", "high")],
+        request_defaults={"reasoning_effort": "high"},
+    )
+    pro = ModelConfig(
+        public_id="alphax-pro", public_name="AlphaX Pro", provider_id=regolo.id,
+        upstream_model_id="gemma4-31b", active=True, system_prompt="keep Gemma prompt",
+        supports_reasoning=True, reasoning_mode="levels", reasoning_parameter="reasoning_effort",
+        reasoning_options={"supported": True, "effort": ["low", "medium", "high"]},
+        reasoning_variants=[{"id": level, "body": {"reasoning_effort": level}} for level in ("low", "medium", "high")],
+        request_defaults={"reasoning_effort": "high", "temperature": 0.2},
+    )
+    max_model = ModelConfig(
+        public_id="alphax-max", public_name="AlphaX Max", provider_id=google.id,
+        upstream_model_id="gemini-3.6-flash", active=True, system_prompt="keep Gemini prompt",
+        supports_reasoning=True, reasoning_mode="levels", reasoning_parameter="thinking_level",
+        reasoning_options={"supported": True, "effort": ["minimal", "low", "medium", "high"]},
+        request_defaults={"thinking_level": "medium"},
+    )
+    db.add_all([y5z, pro, max_model]); db.commit()
+
+    apply_regolo_gemma_reasoning_toggle_v13_migration(db); db.commit()
+    assert pro.reasoning_mode == "toggle"
+    assert pro.reasoning_parameter == "reasoning_effort"
+    assert pro.reasoning_options["toggle"] is True
+    assert "effort" not in pro.reasoning_options
+    assert pro.reasoning_variants == []
+    assert pro.request_defaults["reasoning_effort"] == "high"
+    assert "thinking_level" not in pro.request_defaults
+    assert pro.request_defaults["temperature"] == 0.2
+    assert pro.system_prompt == "keep Gemma prompt"
+
+    # DeepSeek keeps its toggle plus selectable effort levels; Gemini is untouched.
+    assert y5z.reasoning_options["toggle"] is True
+    assert y5z.reasoning_options["effort"] == ["low", "medium", "high"]
+    assert [item["id"] for item in y5z.reasoning_variants] == ["low", "medium", "high"]
+    assert max_model.reasoning_mode == "levels"
+    assert max_model.reasoning_options["effort"] == ["minimal", "low", "medium", "high"]
+
+    apply_regolo_gemma_reasoning_toggle_v13_migration(db); db.commit()
+    assert pro.reasoning_mode == "toggle" and pro.reasoning_options["toggle"] is True
+    db.close(); engine.dispose()
+
+
+def test_regolo_gemma_toggle_only_payload_sends_none_for_off_and_high_for_on():
+    model = ModelConfig(
+        id=99, public_id="alphax-pro", public_name="AlphaX Pro", provider_id=99,
+        upstream_model_id="gemma4-31b", active=True, supports_reasoning=True,
+        reasoning_mode="toggle", reasoning_parameter="reasoning_effort",
+        reasoning_options={"supported": True, "toggle": True},
+        request_defaults={"reasoning_effort": "high"},
+    )
+    route_obj = _route(99, "gemma4-31b")
+
+    off = _openai_payload(
+        model, route_obj,
+        {"model": "alphax-pro", "messages": [], "reasoning_effort": "none"},
+        [{"role": "user", "content": "test"}], provider_name="Regolo",
+    )
+    assert off["reasoning_effort"] == "none"
+    assert "thinking" not in off and "thinking_level" not in off and "reasoning" not in off
+
+    off_switch = _openai_payload(
+        model, route_obj,
+        {"model": "alphax-pro", "messages": [], "alpha_reasoning": False},
+        [{"role": "user", "content": "test"}], provider_name="Regolo",
+    )
+    assert off_switch["reasoning_effort"] == "none"
+
+    on = _openai_payload(
+        model, route_obj,
+        {"model": "alphax-pro", "messages": [], "alpha_reasoning": True, "reasoning_effort": "none"},
+        [{"role": "user", "content": "test"}], provider_name="Regolo",
+    )
+    assert on["reasoning_effort"] == "high"
+
+    # Old clients requesting an effort level cannot re-enable a Gemma effort scale.
+    legacy_level = _openai_payload(
+        model, route_obj,
+        {"model": "alphax-pro", "messages": [], "reasoning_effort": "low"},
+        [{"role": "user", "content": "test"}], provider_name="Regolo",
+    )
+    assert legacy_level["reasoning_effort"] == "high"

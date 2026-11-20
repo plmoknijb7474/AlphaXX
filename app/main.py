@@ -629,6 +629,43 @@ def apply_y5z_deepseek_reasoning_toggle_v12_migration(db):
     db.flush()
 
 
+def apply_regolo_gemma_reasoning_toggle_v13_migration(db):
+    """Expose Regolo Gemma 4 31B as a binary reasoning toggle, without effort levels.
+
+    This is deliberately guarded to the built-in AlphaX Pro route. Custom Admin
+    provider/model assignments are not rewritten.
+    """
+    model = db.scalar(select(ModelConfig).where(ModelConfig.public_id == "alphax-pro"))
+    if model is None:
+        db.flush()
+        return
+    provider = db.get(Provider, model.provider_id)
+    if (
+        not provider
+        or provider.name.strip().lower() != "regolo"
+        or (model.upstream_model_id or "").strip() != "gemma4-31b"
+    ):
+        db.flush()
+        return
+
+    model.supports_reasoning = True
+    model.reasoning_mode = "toggle"
+    model.reasoning_parameter = "reasoning_effort"
+    model.reasoning_options = {
+        "supported": True,
+        "toggle": True,
+        "description": "Gemma 4 thinking is a binary ON/OFF feature; no effort levels are exposed.",
+    }
+    # OpenCode provides its native ON/OFF variant from capabilities.reasoning.toggle.
+    model.reasoning_variants = []
+    defaults = dict(model.request_defaults or {})
+    for stale_key in ("thinking_level", "reasoning", "alpha_reasoning"):
+        defaults.pop(stale_key, None)
+    defaults["reasoning_effort"] = "high"
+    model.request_defaults = defaults
+    db.flush()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -726,13 +763,18 @@ async def lifespan(app: FastAPI):
         if db.get(SystemSetting, "y5z_deepseek_reasoning_toggle_v12") is None:
             apply_y5z_deepseek_reasoning_toggle_v12_migration(db)
             db.add(SystemSetting(key="y5z_deepseek_reasoning_toggle_v12", value="seeded"))
+        # V13 exposes Regolo Gemma 4 31B as ON/OFF only; DeepSeek keeps both
+        # its ON/OFF switch and low/medium/high effort choices.
+        if db.get(SystemSetting, "regolo_gemma_binary_reasoning_toggle_v13") is None:
+            apply_regolo_gemma_reasoning_toggle_v13_migration(db)
+            db.add(SystemSetting(key="regolo_gemma_binary_reasoning_toggle_v13", value="seeded"))
         db.commit()
     finally:
         db.close()
     yield
 
 
-app = FastAPI(title=settings.app_name, version="1.5.10", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="1.5.11", lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie="alpha_session", same_site="strict", https_only=settings.cookie_secure, max_age=60 * 60 * 8)
 APP_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
@@ -744,7 +786,7 @@ app.include_router(customer_router)
 @app.get("/health")
 def health():
     """Liveness check: confirms the ASGI worker is responding."""
-    return {"status": "ok", "service": "alpha-api", "phase": "alphax-apinex-regolo-gemini-deepseek-toggle-v1.5.10"}
+    return {"status": "ok", "service": "alpha-api", "phase": "alphax-apinex-regolo-gemini-deepseek-toggle-v1.5.11"}
 
 
 @app.get("/health/ready")
@@ -757,9 +799,9 @@ def health_ready():
         # Do not leak database URLs, credentials, or connection details to the public endpoint.
         return JSONResponse(
             status_code=503,
-            content={"status": "not_ready", "service": "alpha-api", "version": "1.5.10"},
+            content={"status": "not_ready", "service": "alpha-api", "version": "1.5.11"},
         )
-    return {"status": "ready", "service": "alpha-api", "version": "1.5.10"}
+    return {"status": "ready", "service": "alpha-api", "version": "1.5.11"}
 
 
 @app.get("/", include_in_schema=False)

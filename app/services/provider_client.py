@@ -103,60 +103,82 @@ def _openai_payload(model: ModelConfig, route, request_data: dict, messages: lis
         # switch; other routes remain levels-only unless configured otherwise.
         for key in ("thinking_level", "reasoning_effort", "reasoning", "thinking", "alpha_reasoning"):
             payload.pop(key, None)
-        if model.supports_reasoning and model.reasoning_mode == "levels":
+        if model.supports_reasoning:
             options = model.reasoning_options or {}
-            allowed = options.get("effort") if isinstance(options, dict) else None
-            allowed = [str(x).strip().lower() for x in allowed if str(x).strip()] if isinstance(allowed, list) else []
-            if allowed:
-                defaults_for_reasoning = model.request_defaults or {}
-                parameter = str(model.reasoning_parameter or "reasoning_effort").strip()
-                default_effort = (defaults_for_reasoning.get(parameter)
-                                  or defaults_for_reasoning.get("reasoning_effort")
-                                  or defaults_for_reasoning.get("thinking_level")
-                                  or allowed[-1])
-                requested = (request_data.get(parameter)
-                             or request_data.get("reasoning_effort")
-                             or request_data.get("thinking_level"))
-                nested_reasoning = request_data.get("reasoning")
-                if not requested and isinstance(nested_reasoning, dict):
-                    requested = nested_reasoning.get("effort")
+            defaults_for_reasoning = model.request_defaults or {}
+            parameter = str(model.reasoning_parameter or "reasoning_effort").strip()
+            requested = (request_data.get(parameter)
+                         or request_data.get("reasoning_effort")
+                         or request_data.get("thinking_level"))
+            nested_reasoning = request_data.get("reasoning")
+            if not requested and isinstance(nested_reasoning, dict):
+                requested = nested_reasoning.get("effort")
+            thinking_input = request_data.get("thinking")
+            thinking_type = (thinking_input.get("type")
+                             if isinstance(thinking_input, dict) else None)
 
-                # DeepSeek V4 Pro on APInex exposes a separate thinking-mode
-                # switch. `none`/OFF must disable reasoning, not downgrade it
-                # to the least-intensive enabled level.
-                supports_toggle = provider_name.strip().lower() == "apinex" and options.get("toggle") is True
-                thinking_input = request_data.get("thinking")
-                thinking_type = (thinking_input.get("type")
-                                 if isinstance(thinking_input, dict) else None)
-                if supports_toggle:
-                    effort_requests_off = str(requested or "").strip().lower() in {"none", "off", "disabled"}
-                    disabled = (
-                        thinking_type == "disabled"
-                        or (thinking_type != "enabled" and request_data.get("alpha_reasoning") is False)
-                        or (thinking_type != "enabled" and effort_requests_off)
-                    )
-                    if disabled:
-                        payload["thinking"] = {"type": "disabled"}
-                        payload.pop(parameter, None)
-                        payload.pop("reasoning_effort", None)
+            if model.reasoning_mode == "toggle" and options.get("toggle") is True:
+                # Toggle-only models (currently Regolo Gemma 4 31B) must not
+                # expose a fake effort scale. Send `none` for OFF and the model's
+                # configured default effort for ON. Provider-side OFF support is
+                # model-specific and must be verified against a live API response.
+                if isinstance(request_data.get("alpha_reasoning"), bool):
+                    disabled = request_data["alpha_reasoning"] is False
+                elif isinstance(thinking_input, bool):
+                    disabled = thinking_input is False
+                elif thinking_type in {"enabled", "disabled"}:
+                    disabled = thinking_type == "disabled"
+                else:
+                    disabled = str(requested or "").strip().lower() in {
+                        "none", "off", "disabled", "minimal"
+                    }
+                default_effort = (
+                    defaults_for_reasoning.get(parameter)
+                    or defaults_for_reasoning.get("reasoning_effort")
+                    or "high"
+                )
+                payload[parameter] = "none" if disabled else str(default_effort).strip().lower()
+            elif model.reasoning_mode == "levels":
+                allowed = options.get("effort") if isinstance(options, dict) else None
+                allowed = [str(x).strip().lower() for x in allowed if str(x).strip()] if isinstance(allowed, list) else []
+                if allowed:
+                    default_effort = (defaults_for_reasoning.get(parameter)
+                                      or defaults_for_reasoning.get("reasoning_effort")
+                                      or defaults_for_reasoning.get("thinking_level")
+                                      or allowed[-1])
+                    # DeepSeek V4 Pro on APInex exposes a separate thinking-mode
+                    # switch in addition to its low/medium/high effort controls.
+                    supports_toggle = provider_name.strip().lower() == "apinex" and options.get("toggle") is True
+                    if supports_toggle:
+                        effort_requests_off = str(requested or "").strip().lower() in {"none", "off", "disabled"}
+                        disabled = (
+                            thinking_type == "disabled"
+                            or (thinking_type != "enabled" and request_data.get("alpha_reasoning") is False)
+                            or (thinking_type != "enabled" and effort_requests_off)
+                        )
+                        if disabled:
+                            payload["thinking"] = {"type": "disabled"}
+                            payload.pop(parameter, None)
+                            payload.pop("reasoning_effort", None)
+                        else:
+                            effort = str(requested or default_effort).strip().lower()
+                            if effort not in allowed:
+                                effort = str(default_effort).strip().lower()
+                            if effort not in allowed:
+                                effort = allowed[-1]
+                            payload["thinking"] = {"type": "enabled"}
+                            payload[parameter] = effort
                     else:
+                        # Preserve the legacy OFF alias for older/custom routes still configured in levels mode.
+                        # Built-in Regolo Gemma 4 31B is migrated to reasoning_mode="toggle" above.
+                        if request_data.get("alpha_reasoning") is False:
+                            requested = allowed[0]
                         effort = str(requested or default_effort).strip().lower()
                         if effort not in allowed:
                             effort = str(default_effort).strip().lower()
                         if effort not in allowed:
                             effort = allowed[-1]
-                        payload["thinking"] = {"type": "enabled"}
                         payload[parameter] = effort
-                else:
-                    # Regolo currently supports levels only, not an OFF switch.
-                    if request_data.get("alpha_reasoning") is False:
-                        requested = allowed[0]
-                    effort = str(requested or default_effort).strip().lower()
-                    if effort not in allowed:
-                        effort = str(default_effort).strip().lower()
-                    if effort not in allowed:
-                        effort = allowed[-1]
-                    payload[parameter] = effort
 
     return payload
 
