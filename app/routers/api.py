@@ -71,10 +71,34 @@ def list_models(auth=Depends(current_key), db: Session = Depends(get_db)):
     key, _ = auth
     models = db.scalars(select(ModelConfig).where(ModelConfig.active.is_(True)).order_by(ModelConfig.public_name)).all()
     visible = [m for m in models if model_is_provisioned(db, key.user_id, m)]
-    return {"object": "list", "data": [
-        {"id": model.public_id, "object": "model", "created": int(model.created_at.timestamp()) if getattr(model, "created_at", None) else 0, "owned_by": "alpha"}
-        for model in visible
-    ]}
+    data = []
+    for model in visible:
+        defaults = model.request_defaults or {}
+        options = model.reasoning_options or {}
+        default_effort = (
+            defaults.get(model.reasoning_parameter)
+            or defaults.get("reasoning_effort")
+            or defaults.get("thinking_level")
+        )
+        data.append({
+            "id": model.public_id,
+            "object": "model",
+            "created": int(model.created_at.timestamp()) if getattr(model, "created_at", None) else 0,
+            "owned_by": "alpha",
+            "context_window": int(defaults.get("alpha_context_window") or 0),
+            "max_output_tokens": int(defaults.get("alpha_max_output_tokens") or 0),
+            "capabilities": {
+                "tools": bool(model.supports_tools),
+                "vision": bool(model.supports_vision),
+                "reasoning": {
+                    "supported": bool(model.supports_reasoning),
+                    "effort": list(options.get("effort") or []),
+                    "toggle": bool(options.get("toggle")),
+                    "default": default_effort,
+                },
+            },
+        })
+    return {"object": "list", "data": data}
 
 
 @router.get("/quota")
@@ -173,9 +197,16 @@ def chat_completions(request: Request, body: dict, auth=Depends(current_key), db
     except PromptNotConfigured:
         raise HTTPException(503, "Alpha is not ready: the administrator has not configured this model’s System Prompt")
 
-    requested_output = body.get("max_tokens") or body.get("max_completion_tokens") or 8192
+    model_defaults = model.request_defaults or {}
     try:
-        output_cap = max(1, min(int(requested_output), 32768))
+        model_output_ceiling = int(model_defaults.get("alpha_max_output_tokens") or 32768)
+        if model_output_ceiling < 1 or model_output_ceiling > 1_000_000:
+            raise ValueError("invalid model output ceiling")
+    except (TypeError, ValueError):
+        raise HTTPException(503, "The selected model has an invalid output-token configuration")
+    requested_output = body.get("max_tokens") or body.get("max_completion_tokens") or min(8192, model_output_ceiling)
+    try:
+        output_cap = max(1, min(int(requested_output), model_output_ceiling))
     except (TypeError, ValueError):
         raise HTTPException(400, "max_tokens must be a positive integer")
     body["max_tokens"] = output_cap

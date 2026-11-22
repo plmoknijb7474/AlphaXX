@@ -666,6 +666,132 @@ def apply_regolo_gemma_reasoning_toggle_v13_migration(db):
     db.flush()
 
 
+def apply_model_catalog_v15_migration(db):
+    """Install the requested Qwen / DeepSeek / Gemini public model catalog.
+
+    Public aliases remain stable for existing Alpha API keys and customer grants.
+    Provider-specific customer credentials are disabled (never deleted) whenever
+    a model changes provider, so one provider's secret is never sent to another.
+    """
+    google = _provider(
+        db, "Google AI Studio",
+        "https://generativelanguage.googleapis.com/v1beta", "google_genai",
+    )
+    apinex = _provider(db, "APInex", "https://api.apinex.bond/v1", "openai_compatible")
+    inferway = _provider(db, "Inferway", "https://api.inferway.ai/v1", "openai_compatible")
+    for provider, base_url, protocol in (
+        (google, "https://generativelanguage.googleapis.com/v1beta", "google_genai"),
+        (apinex, "https://api.apinex.bond/v1", "openai_compatible"),
+        (inferway, "https://api.inferway.ai/v1", "openai_compatible"),
+    ):
+        provider.base_url = base_url
+        provider.protocol = protocol
+        provider.active = True
+    db.flush()
+
+    qwen_effort = ["minimal", "low", "medium", "high", "xhigh", "max"]
+    deepseek_effort = ["low", "high", "max"]
+    gemini_effort = ["minimal", "low", "medium", "high"]
+    specs = {
+        "y5z-coder-pro": {
+            "provider": inferway,
+            "upstream": "inferway/qwen3.8-27b-uncensored",
+            "parameter": "reasoning_effort",
+            "effort": qwen_effort,
+            "toggle": True,
+            "default": "high",
+            "max_output": 131072,
+            "context": 262144,
+            "vision": True,
+            "description": "A coding-focused assistant for software engineering, debugging, repository work, and tool-assisted development.",
+            "skills": ["Code generation", "Debugging", "Repository analysis", "Refactoring", "Tool-assisted coding", "Image understanding"],
+        },
+        "alphax-pro": {
+            "provider": apinex,
+            "upstream": "free/deepseek-v4-pro-0813",
+            "parameter": "reasoning_effort",
+            "effort": deepseek_effort,
+            "toggle": True,
+            "default": "high",
+            "max_output": 393216,
+            "context": 1048576,
+            "vision": False,
+            "description": "A high-capability reasoning and coding assistant for complex problem solving, software engineering, and agentic tool use.",
+            "skills": ["Advanced reasoning", "Software engineering", "Complex problem solving", "Tool calling", "Long-context analysis"],
+        },
+        "alphax-max": {
+            "provider": google,
+            "upstream": "gemini-3.5-flash-lite",
+            "parameter": "thinking_level",
+            "effort": gemini_effort,
+            "toggle": False,
+            "default": "medium",
+            "max_output": 65536,
+            "context": 1048576,
+            "vision": True,
+            "description": "A fast multimodal assistant for everyday reasoning, coding, document understanding, and tool-assisted workflows.",
+            "skills": ["Text and image understanding", "Coding assistance", "Document analysis", "Function calling", "Multilingual tasks"],
+        },
+    }
+
+    for public_id, spec in specs.items():
+        model = db.scalar(select(ModelConfig).where(ModelConfig.public_id == public_id))
+        if model is None:
+            continue
+        previous_provider = db.get(Provider, model.provider_id)
+        provider_changed = (
+            not previous_provider
+            or previous_provider.id != spec["provider"].id
+            or previous_provider.name.strip().lower() != spec["provider"].name.strip().lower()
+        )
+        if provider_changed:
+            for credential in db.scalars(
+                select(UserModelCredential).where(UserModelCredential.model_id == model.id)
+            ).all():
+                if credential.active:
+                    credential.active = False
+                    credential.last_failure_code = "PROVIDER_CHANGED"
+
+        model.provider_id = spec["provider"].id
+        model.upstream_model_id = spec["upstream"]
+        model.fallback_upstream_ids = []
+        model.active = True
+        model.supports_reasoning = True
+        # Levels plus a native OFF toggle where the provider/model supports it.
+        model.reasoning_mode = "levels"
+        model.reasoning_parameter = spec["parameter"]
+        model.reasoning_options = {
+            "supported": True,
+            "effort": list(spec["effort"]),
+            "toggle": bool(spec["toggle"]),
+            "description": "Reasoning levels are passed through to the selected upstream model.",
+        }
+        model.reasoning_variants = [
+            {"id": level, "body": {spec["parameter"]: level}}
+            for level in spec["effort"]
+        ]
+        defaults = dict(model.request_defaults or {})
+        for stale_key in ("thinking_level", "reasoning_effort", "reasoning", "alpha_reasoning"):
+            defaults.pop(stale_key, None)
+        defaults[spec["parameter"]] = spec["default"]
+        # Internal gateway limits; provider adapters strip these before forwarding.
+        defaults["alpha_max_output_tokens"] = spec["max_output"]
+        defaults["alpha_context_window"] = spec["context"]
+        model.request_defaults = defaults
+        model.supports_tools = True
+        model.supports_streaming = True
+        model.supports_vision = spec["vision"]
+        model.public_description = spec["description"]
+        model.public_skills = list(spec["skills"])
+        model.public_highlights = []
+
+    # Retire the old Gemma-only connector after all public aliases have moved.
+    regolo = db.scalar(select(Provider).where(Provider.name == "Regolo"))
+    if regolo and not db.scalar(select(ModelConfig.id).where(ModelConfig.provider_id == regolo.id).limit(1)):
+        regolo.active = False
+    db.flush()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -768,13 +894,17 @@ async def lifespan(app: FastAPI):
         if db.get(SystemSetting, "regolo_gemma_binary_reasoning_toggle_v13") is None:
             apply_regolo_gemma_reasoning_toggle_v13_migration(db)
             db.add(SystemSetting(key="regolo_gemma_binary_reasoning_toggle_v13", value="seeded"))
+        # V15 installs the current provider-specific controls, limits, and catalog.
+        if db.get(SystemSetting, "model_catalog_qwen_deepseek_gemini_lite_v15") is None:
+            apply_model_catalog_v15_migration(db)
+            db.add(SystemSetting(key="model_catalog_qwen_deepseek_gemini_lite_v15", value="seeded"))
         db.commit()
     finally:
         db.close()
     yield
 
 
-app = FastAPI(title=settings.app_name, version="1.5.11", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="1.5.13", lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie="alpha_session", same_site="strict", https_only=settings.cookie_secure, max_age=60 * 60 * 8)
 APP_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
@@ -786,7 +916,7 @@ app.include_router(customer_router)
 @app.get("/health")
 def health():
     """Liveness check: confirms the ASGI worker is responding."""
-    return {"status": "ok", "service": "alpha-api", "phase": "alphax-apinex-regolo-gemini-deepseek-toggle-v1.5.11"}
+    return {"status": "ok", "service": "alpha-api", "phase": "alphaxx-qwen-deepseek-gemini-lite-v1.5.13"}
 
 
 @app.get("/health/ready")
@@ -799,9 +929,9 @@ def health_ready():
         # Do not leak database URLs, credentials, or connection details to the public endpoint.
         return JSONResponse(
             status_code=503,
-            content={"status": "not_ready", "service": "alpha-api", "version": "1.5.11"},
+            content={"status": "not_ready", "service": "alpha-api", "version": "1.5.13"},
         )
-    return {"status": "ready", "service": "alpha-api", "version": "1.5.11"}
+    return {"status": "ready", "service": "alpha-api", "version": "1.5.13"}
 
 
 @app.get("/", include_in_schema=False)

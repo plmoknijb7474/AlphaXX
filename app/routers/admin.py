@@ -300,21 +300,21 @@ def change_user_subscription(request: Request, user_id: int, plan_id: int = Form
 @router.get("/providers", response_class=HTMLResponse)
 def providers_page(request: Request, db: Session = Depends(get_db)):
     admin_required(request, db)
-    providers = db.scalars(select(Provider).where(Provider.name.in_(["Google AI Studio", "OpenRouter", "APInex", "Regolo"])).order_by(Provider.name)).all()
+    providers = db.scalars(select(Provider).where(Provider.name.in_(["Google AI Studio", "OpenRouter", "APInex", "Inferway"])).order_by(Provider.name)).all()
     return render(request, "providers.html", providers=providers, warning=not bool(settings.fernet_key))
 
 
 @router.post("/providers")
 def create_provider(request: Request, name: str = Form(...), base_url: str = Form(...), protocol: str = Form("google_genai"), csrf: str = Form(...), db: Session = Depends(get_db)):
     admin_required(request, db); check_csrf(request, csrf)
-    raise HTTPException(403, "Only the fixed built-in Google AI Studio, OpenRouter, APInex, and Regolo connectors are supported")
+    raise HTTPException(403, "Only the fixed built-in Google AI Studio, OpenRouter, APInex, and Inferway connectors are supported")
 
 
 @router.post("/providers/{provider_id}/toggle")
 def toggle_provider(request: Request, provider_id: int, csrf: str = Form(...), db: Session = Depends(get_db)):
     admin_required(request, db); check_csrf(request, csrf)
     provider = db.get(Provider, provider_id)
-    if not provider or provider.name not in {"Google AI Studio", "OpenRouter", "APInex", "Regolo"}:
+    if not provider or provider.name not in {"Google AI Studio", "OpenRouter", "APInex", "Inferway"}:
         raise HTTPException(404, "Provider not found")
     provider.active = not provider.active
     db.commit()
@@ -535,7 +535,7 @@ def models_page(request: Request, db: Session = Depends(get_db)):
                 str(item.get("source_url", "")),
             ]))
         model.public_highlights_text = "\n".join(rows)
-    providers = db.scalars(select(Provider).where(Provider.name.in_(["Google AI Studio", "OpenRouter", "APInex", "Regolo"])).order_by(Provider.name)).all()
+    providers = db.scalars(select(Provider).where(Provider.name.in_(["Google AI Studio", "OpenRouter", "APInex", "Inferway"])).order_by(Provider.name)).all()
     return render(request, "models.html", models=models, providers=providers)
 
 
@@ -570,10 +570,10 @@ def create_model(request: Request, public_id: str = Form(...), public_name: str 
     provider = db.get(Provider, provider_id)
     supported_provider = bool(provider and (
         (provider.name == "Google AI Studio" and provider.protocol == "google_genai")
-        or (provider.name in {"OpenRouter", "APInex", "Regolo"} and provider.protocol == "openai_compatible")
+        or (provider.name in {"OpenRouter", "APInex", "Inferway"} and provider.protocol == "openai_compatible")
     ))
     if not supported_provider:
-        raise HTTPException(400, "Choose Google AI Studio, OpenRouter, APInex, or Regolo")
+        raise HTTPException(400, "Choose Google AI Studio, OpenRouter, APInex, or Inferway")
     if reasoning_mode not in {"none", "toggle", "levels"}: raise HTTPException(400, "Invalid reasoning mode")
     if supports_reasoning and reasoning_mode == "none": raise HTTPException(400, "Choose toggle or levels for a reasoning model")
     public_skills_text = public_skills_text or ""
@@ -613,10 +613,10 @@ def update_model(
     model = db.get(ModelConfig, model_id); provider = db.get(Provider, provider_id)
     supported_provider = bool(provider and (
         (provider.name == "Google AI Studio" and provider.protocol == "google_genai")
-        or (provider.name in {"OpenRouter", "APInex", "Regolo"} and provider.protocol == "openai_compatible")
+        or (provider.name in {"OpenRouter", "APInex", "Inferway"} and provider.protocol == "openai_compatible")
     ))
     if not model or not supported_provider:
-        raise HTTPException(400, "Choose Google AI Studio, OpenRouter, APInex, or Regolo")
+        raise HTTPException(400, "Choose Google AI Studio, OpenRouter, APInex, or Inferway")
     public_id_value = public_id.strip().lower()
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,119}", public_id_value):
         raise HTTPException(400, "Public model ID must use lowercase letters, numbers, dots, underscores, or hyphens")

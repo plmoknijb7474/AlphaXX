@@ -180,6 +180,49 @@ def _openai_payload(model: ModelConfig, route, request_data: dict, messages: lis
                             effort = allowed[-1]
                         payload[parameter] = effort
 
+    elif provider_name.strip().lower() == "inferway":
+        # Inferway exposes the Qwen reasoning_effort enum. `none` is the
+        # explicit OFF state; effort values are constrained by model metadata.
+        for key in ("thinking_level", "reasoning_effort", "reasoning", "thinking", "alpha_reasoning"):
+            payload.pop(key, None)
+        if model.supports_reasoning:
+            options = model.reasoning_options or {}
+            defaults_for_reasoning = model.request_defaults or {}
+            parameter = str(model.reasoning_parameter or "reasoning_effort").strip()
+            requested = (request_data.get(parameter)
+                         or request_data.get("reasoning_effort")
+                         or request_data.get("thinking_level"))
+            nested_reasoning = request_data.get("reasoning")
+            if not requested and isinstance(nested_reasoning, dict):
+                requested = nested_reasoning.get("effort")
+            thinking_input = request_data.get("thinking")
+            thinking_type = (thinking_input.get("type")
+                             if isinstance(thinking_input, dict) else None)
+            disabled = (
+                request_data.get("alpha_reasoning") is False
+                or thinking_input is False
+                or thinking_type == "disabled"
+                or (thinking_type != "enabled"
+                    and str(requested or "").strip().lower() in {"none", "off", "disabled"})
+            )
+            allowed = options.get("effort") if isinstance(options, dict) else None
+            allowed = [str(x).strip().lower() for x in allowed if str(x).strip()] if isinstance(allowed, list) else []
+            default_effort = (defaults_for_reasoning.get(parameter)
+                              or defaults_for_reasoning.get("reasoning_effort")
+                              or (allowed[-1] if allowed else "high"))
+            if disabled:
+                payload[parameter] = "none"
+            else:
+                effort = str(requested or default_effort).strip().lower()
+                if effort not in allowed:
+                    effort = str(default_effort).strip().lower()
+                if allowed and effort not in allowed:
+                    effort = allowed[-1]
+                payload[parameter] = effort
+
+    # AlphaX catalog metadata must not be sent as upstream generation fields.
+    payload.pop("alpha_max_output_tokens", None)
+    payload.pop("alpha_context_window", None)
     return payload
 
 
